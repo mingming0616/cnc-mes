@@ -1,0 +1,225 @@
+/* ============================================================
+   style.css — CNC MES 共用樣式
+   原則：顏色只留給「機台狀態」使用，介面本身用鋼灰＋墨色；
+        字大、按鈕大（至少 48px 高），站著、戴手套也好按。
+   ============================================================ */
+
+:root {
+  --steel: #E4E8EB;        /* 頁面底色：像鋁材的冷灰 */
+  --panel: #FFFFFF;        /* 面板底色 */
+  --sunk: #F2F4F6;         /* 次要底色（按下、提示框） */
+  --ink: #1D262D;          /* 主要文字、主按鈕、外框 */
+  --ink-soft: #56626C;     /* 次要文字 */
+  --rule: #C4CBD1;         /* 細線 */
+  --rule-strong: #8B969F;  /* 輸入框外框、鉚釘 */
+  --error: #B3261E;        /* 錯誤訊息 */
+  --font-text: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif;
+  /* 品牌字、工號、帳號：工業標示風格的窄體字（中文自動用系統字） */
+  --font-code: "Barlow Semi Condensed", "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", sans-serif;
+  --radius: 6px;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+[hidden] { display: none !important; }
+
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--steel);
+  color: var(--ink);
+  font-family: var(--font-text);
+  font-size: 17px;
+  line-height: 1.6;
+}
+h2 { font-size: 20px; line-height: 1.35; margin: 0 0 10px; }
+p { margin: 0 0 10px; }
+a { color: inherit; }
+:focus-visible { outline: 3px solid var(--ink); outline-offset: 2px; }
+
+/* ---------- 按鈕 ---------- */
+.btn {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-height: 48px; padding: 0 18px;
+  border: 2px solid var(--ink); border-radius: var(--radius);
+  background: var(--panel); color: var(--ink);
+  font: inherit; font-weight: 600; text-decoration: none;
+  cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.btn:active { background: var(--sunk); }
+.btn.primary { background: var(--ink); color: #fff; }
+.btn.primary:active { background: #33414C; }
+.btn.block { width: 100%; }
+.btn:disabled { opacity: .5; cursor: default; }
+
+/* ---------- 上方黑條 ---------- */
+.topbar {
+  position: sticky; top: 0; z-index: 5;
+  display: flex; align-items: center; flex-wrap: wrap; gap: 10px 14px;
+  padding: max(10px, env(safe-area-inset-top)) max(16px, env(safe-area-inset-right)) 10px max(16px, env(safe-area-inset-left));
+  background: var(--ink); color: #fff;
+}
+.topbar .btn.ghost { min-height: 44px; border-color: rgba(255, 255, 255, .55); background: transparent; color: #fff; }
+.topbar .btn.ghost:active { background: rgba(255, 255, 255, .12); }
+.topbar-title { font-size: 20px; font-weight: 600; }
+.topbar-actions { display: flex; gap: 8px; margin-left: auto; }
+.who { display: flex; align-items: center; gap: 8px; font-weight: 600; }
+.role-tag { font-size: 14px; font-weight: 500; padding: 1px 8px; border: 1px solid rgba(255, 255, 255, .55); border-radius: 4px; }
+.brand { font-family: var(--font-code); font-weight: 700; font-size: 22px; letter-spacing: .06em; }
+
+/* ---------- 版面 ---------- */
+.page { max-width: 980px; margin: 0 auto; padding: 20px 16px 48px; }
+.loading, .state {
+  display: grid; place-content: center; justify-items: center; gap: 14px;
+  min-height: 50vh; padding: 40px 16px; color: var(--ink-soft); text-align: center;
+}
+.loading { min-height: 100vh; min-height: 100dvh; }
+.muted { color: var(--ink-soft); font-size: 15px; }
+.notes { white-space: pre-line; }
+
+/* ---------- 登入：機台銘板 ---------- */
+.login {
+  min-height: 100vh; min-height: 100dvh;
+  display: grid; justify-items: center; align-content: start;
+  padding: 12vh 16px 40px;
+}
+.plate {
+  display: grid; gap: 16px;
+  width: min(420px, 100%);
+  padding: 30px 26px 24px;
+  background-color: var(--panel);
+  border: 2px solid var(--ink);
+  border-radius: 10px;
+  /* 四個角的鉚釘 */
+  background-image:
+    radial-gradient(circle, var(--rule-strong) 3px, transparent 3.6px),
+    radial-gradient(circle, var(--rule-strong) 3px, transparent 3.6px),
+    radial-gradient(circle, var(--rule-strong) 3px, transparent 3.6px),
+    radial-gradient(circle, var(--rule-strong) 3px, transparent 3.6px);
+  background-size: 14px 14px;
+  background-repeat: no-repeat;
+  background-position: 6px 6px, calc(100% - 6px) 6px, 6px calc(100% - 6px), calc(100% - 6px) calc(100% - 6px);
+}
+.plate .field { margin: 0; }
+.plate-head { border-bottom: 2px solid var(--ink); padding-bottom: 14px; }
+.brand-lg { font-size: 46px; line-height: 1; margin: 0 0 8px; }
+.plate-sub { margin: 0; color: var(--ink-soft); letter-spacing: .12em; }
+
+/* ---------- 表單欄位 ---------- */
+.field { display: grid; gap: 6px; margin: 0 0 14px; padding: 0; border: 0; min-width: 0; }
+.field > span, .field > legend { font-size: 15px; color: var(--ink-soft); padding: 0; margin-bottom: 6px; }
+.field > span { margin-bottom: 0; }
+.field input[type="text"], .field input[type="password"] {
+  width: 100%; min-height: 52px; padding: 0 14px;
+  border: 2px solid var(--rule-strong); border-radius: var(--radius);
+  background: #fff; color: var(--ink);
+  font: inherit; font-size: 18px;   /* 18px：iPhone 點輸入框才不會自動放大畫面 */
+}
+.field input:focus { border-color: var(--ink); outline: none; }
+.field input:disabled { background: var(--sunk); color: var(--ink-soft); }
+#login-empno, #f-empno { font-family: var(--font-code); font-size: 22px; letter-spacing: .08em; text-transform: uppercase; }
+
+.check { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
+.check input { width: 24px; height: 24px; margin: 0; accent-color: var(--ink); }
+.checks { display: flex; flex-wrap: wrap; gap: 4px 22px; }
+.form-error { color: var(--error); font-weight: 600; min-height: 1.6em; margin: 0; }
+
+/* 角色：三段式按鈕 */
+.seg { display: grid; grid-template-columns: repeat(3, 1fr); border: 2px solid var(--ink); border-radius: var(--radius); overflow: hidden; }
+.seg label { position: relative; }
+.seg label + label { border-left: 2px solid var(--ink); }
+.seg input { position: absolute; inset: 0; opacity: 0; margin: 0; }
+.seg span { display: grid; place-items: center; min-height: 48px; font-weight: 600; cursor: pointer; }
+.seg input:checked + span { background: var(--ink); color: #fff; }
+.seg input:focus-visible + span { outline: 3px solid var(--rule-strong); outline-offset: -6px; }
+.seg input:disabled + span { cursor: default; opacity: .6; }
+
+.row-actions { display: flex; gap: 12px; justify-content: flex-end; flex-wrap: wrap; }
+.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 16px; }
+
+/* ---------- 首頁：模組按鍵（像機台面板上的實體按鍵） ---------- */
+.keys { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 18px 14px; }
+.key {
+  display: grid; align-content: start; gap: 4px;
+  min-height: 132px; padding: 18px 20px;
+  background: var(--panel); color: var(--ink); text-decoration: none;
+  border: 2px solid var(--ink); border-radius: 8px;
+  box-shadow: 0 5px 0 var(--ink);            /* 按鍵的厚度 */
+}
+.key:active { transform: translateY(3px); box-shadow: 0 2px 0 var(--ink); }
+.key-label { font-size: 24px; font-weight: 700; }
+.key-desc { color: var(--ink-soft); }
+.key.is-soon { border-style: dashed; border-color: var(--rule-strong); box-shadow: none; color: var(--ink-soft); }
+.key.is-soon:active { transform: none; }
+.soon { justify-self: start; margin-top: 8px; font-size: 14px; padding: 1px 8px; border: 1px solid var(--rule-strong); border-radius: 4px; }
+
+.setup, .hint, .sheet { background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; padding: 18px; margin-bottom: 18px; }
+.hint { background: var(--sunk); }
+.copy-row { display: flex; gap: 10px; align-items: stretch; flex-wrap: wrap; margin: 0 0 12px; }
+.copy-row code {
+  flex: 1 1 240px; display: flex; align-items: center;
+  padding: 8px 12px; background: #fff;
+  border: 1px solid var(--rule-strong); border-radius: var(--radius);
+  font-family: var(--font-code); font-size: 19px; word-break: break-all;
+}
+
+/* ---------- 人員清單（像圖面上的零件表） ---------- */
+.ledger { list-style: none; margin: 0; padding: 0; background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; overflow: hidden; }
+.ledger > li:not(.ledger-head) + li { border-top: 1px solid var(--rule); }
+.ledger-head, .ledger-row {
+  display: grid; grid-template-columns: 96px minmax(0, 1.2fr) 88px minmax(0, 1.4fr) 72px;
+  align-items: center; gap: 12px; padding: 0 16px;
+}
+.ledger-head { min-height: 40px; font-size: 14px; color: var(--ink-soft); border-bottom: 2px solid var(--ink); }
+.ledger-row {
+  width: 100%; min-height: 60px; border: 0; background: none;
+  font: inherit; color: inherit; text-align: left; cursor: pointer;
+}
+.ledger-row:active { background: var(--sunk); }
+.ledger-row.is-off { color: var(--ink-soft); }
+.col-empno { font-family: var(--font-code); font-size: 20px; font-weight: 600; letter-spacing: .04em; }
+.col-name { font-weight: 600; }
+.col-name, .col-dept { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tag { display: inline-block; font-size: 14px; padding: 1px 8px; border: 1px solid var(--ink); border-radius: 4px; }
+.tag-off { border-style: dashed; border-color: var(--rule-strong); }
+.empty { padding: 24px 16px; color: var(--ink-soft); }
+
+@media (max-width: 640px) {
+  .ledger-head { display: none; }
+  .ledger-row {
+    grid-template-columns: 76px minmax(0, 1fr) auto;
+    grid-template-areas: "empno name state" "empno role dept";
+    gap: 2px 12px; padding: 10px 14px;
+  }
+  .col-empno { grid-area: empno; }
+  .col-name { grid-area: name; }
+  .col-state { grid-area: state; justify-self: end; }
+  .col-role { grid-area: role; font-size: 15px; color: var(--ink-soft); }
+  .col-dept { grid-area: dept; font-size: 15px; color: var(--ink-soft); justify-self: end; }
+  .brand-lg { font-size: 40px; }
+  .login { padding-top: 8vh; }
+}
+
+/* ---------- 修改密碼視窗 ---------- */
+dialog {
+  width: min(440px, calc(100% - 24px)); padding: 0;
+  border: 2px solid var(--ink); border-radius: 10px;
+  background: var(--panel); color: var(--ink);
+}
+dialog::backdrop { background: rgba(29, 38, 45, .55); }
+.dialog-body { padding: 22px 20px 18px; }
+
+/* ---------- 下方短暫提示 ---------- */
+.toast {
+  position: fixed; left: 50%; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 20;
+  max-width: calc(100% - 32px); padding: 14px 18px; border-radius: 8px;
+  background: var(--ink); color: #fff; font-weight: 600;
+  opacity: 0; transform: translate(-50%, 16px); pointer-events: none;
+  transition: opacity .2s, transform .2s;
+}
+.toast.show { opacity: 1; transform: translate(-50%, 0); }
+.toast.error { background: var(--error); }
+
+@media (prefers-reduced-motion: reduce) {
+  .toast { transition: none; }
+  .key:active { transform: none; }
+}

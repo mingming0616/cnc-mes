@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CNC MES</title>
+<!-- 英文與數字用 Barlow Semi Condensed（工業標示風格），中文用系統字型 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<!-- ========== 載入中／連線錯誤 ========== -->
+<div id="view-loading" class="loading">
+  <p id="loading-text">連線中…</p>
+  <button id="btn-retry" class="btn" type="button" hidden>重新整理</button>
+</div>
+
+<!-- ========== 登入畫面 ========== -->
+<main id="view-login" class="login" hidden>
+  <form id="login-form" class="plate" novalidate>
+    <div class="plate-head">
+      <p class="brand brand-lg">CNC MES</p>
+      <p class="plate-sub">工廠製造管理執行系統</p>
+    </div>
+    <label class="field">
+      <span>工號</span>
+      <input id="login-empno" type="text" autocomplete="username" autocapitalize="characters" spellcheck="false" maxlength="10">
+    </label>
+    <label class="field">
+      <span>密碼</span>
+      <input id="login-password" type="password" autocomplete="current-password">
+    </label>
+    <label class="check">
+      <input id="login-keep" type="checkbox">
+      <span>保持登入（公用平板不要勾）</span>
+    </label>
+    <p id="login-error" class="form-error" role="alert"></p>
+    <button id="login-btn" class="btn primary block" type="submit">登入</button>
+  </form>
+</main>
+
+<!-- ========== 首頁 ========== -->
+<div id="view-home" hidden>
+  <header class="topbar">
+    <span class="brand">CNC MES</span>
+    <span class="who"><span id="home-name"></span><span id="home-role" class="role-tag"></span></span>
+    <span class="topbar-actions">
+      <button id="btn-password" class="btn ghost" type="button">修改密碼</button>
+      <button id="btn-logout" class="btn ghost" type="button">登出</button>
+    </span>
+  </header>
+  <main class="page">
+    <!-- 只有管理者、而且預設資料還沒建立時才出現 -->
+    <section id="setup-card" class="setup" hidden>
+      <h2>第一次使用：建立預設資料</h2>
+      <p>會建立銑床課（8 種狀態和原因清單）以及班別設定。已經有的資料不會被覆蓋。</p>
+      <button id="btn-setup" class="btn primary" type="button">建立預設資料</button>
+    </section>
+    <nav id="module-keys" class="keys" aria-label="功能"></nav>
+  </main>
+</div>
+
+<!-- ========== 修改密碼視窗 ========== -->
+<dialog id="dlg-password">
+  <form id="password-form" class="dialog-body" novalidate>
+    <h2>修改密碼</h2>
+    <label class="field"><span>目前密碼</span><input id="pw-current" type="password" autocomplete="current-password"></label>
+    <label class="field"><span>新密碼（至少 8 碼）</span><input id="pw-new" type="password" autocomplete="new-password"></label>
+    <label class="field"><span>再輸入一次新密碼</span><input id="pw-confirm" type="password" autocomplete="new-password"></label>
+    <p id="pw-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="pw-cancel" class="btn" type="button">取消</button>
+      <button id="pw-save" class="btn primary" type="submit">儲存新密碼</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+// ============================================================
+// index.html：登入畫面＋首頁
+// ============================================================
+import {
+  db, doc, getDoc, writeBatch, serverTimestamp,
+  watchAuth, login, logout, loadProfile, changePassword, myEmpNo,
+  normalizeEmpNo, EMPNO_PATTERN, ROLE_LABELS, errorMessage, toast, setBusy
+} from './common.js';
+
+const $ = (id) => document.getElementById(id);
+
+// 首頁的模組按鍵：roles＝哪些角色看得到；href 是 null 代表還沒做（顯示「準備中」）
+const MODULES = [
+  { label: '設備看板', desc: '即時機台狀態', href: null, roles: ['admin', 'maintainer', 'viewer'] },
+  { label: '主檔維護', desc: '單位、樓層、設備', href: null, roles: ['admin'] },
+  { label: '人員管理', desc: '帳號、角色、負責單位', href: 'users.html', roles: ['admin'] }
+];
+
+// 原因清單小工具：[['代碼', '名稱'], ...] → [{ code, label, active }]
+const reasons = (pairs) => pairs.map(([code, label]) => ({ code, label, active: true }));
+
+// 「建立預設資料」要寫入的銑床課設定（對應「資料結構說明」第一階段 v1）
+//   group：稼動率分組 operating 稼動／loss 停機損失／planned 計畫內停機／excluded 不列入產能
+//   needsReason：原因 required 必選／optional 選填／none 不用選
+//   alert：切到這個狀態時要不要跳出提醒
+const DEFAULT_MILLING = {
+  name: '銑床課',
+  sortOrder: 1,
+  active: true,
+  statuses: [
+    { code: 'running',     label: '生產中',   color: '#2E9E4F', group: 'operating', needsReason: 'none',     alert: false },
+    { code: 'setup',       label: '架機中',   color: '#2F6FDE', group: 'loss',      needsReason: 'none',     alert: false },
+    { code: 'waiting',     label: '待機',     color: '#E8B400', group: 'loss',      needsReason: 'required', alert: false },
+    { code: 'fault',       label: '故障',     color: '#D93025', group: 'loss',      needsReason: 'required', alert: true },
+    { code: 'qualityHold', label: '品質異常', color: '#F07C00', group: 'loss',      needsReason: 'required', alert: true },
+    { code: 'maintenance', label: '保養中',   color: '#8E44AD', group: 'planned',   needsReason: 'optional', alert: false },
+    { code: 'idle',        label: '無排產',   color: '#9AA0A6', group: 'planned',   needsReason: 'none',     alert: false },
+    { code: 'offline',     label: '停用',     color: '#5F6368', group: 'excluded',  needsReason: 'required', alert: false }
+  ],
+  reasons: {
+    waiting: reasons([['material', '待料'], ['tool', '待刀具'], ['fixture', '待治具'], ['program', '待程式'],
+                      ['manpower', '待人員'], ['firstArticle', '待首件'], ['instruction', '待指示']]),
+    fault: reasons([['spindle', '主軸'], ['atc', '刀庫／換刀'], ['hydraulic', '油壓／氣壓'], ['coolant', '冷卻／排屑'],
+                    ['electrical', '電控'], ['crash', '撞機'], ['other', '其他']]),
+    qualityHold: reasons([['dimension', '尺寸不良'], ['appearance', '外觀不良'], ['other', '其他']]),
+    maintenance: reasons([['pm', '定期保養'], ['inspection', '點檢']]),
+    offline: reasons([['lent', '借出'], ['installation', '安裝驗收'], ['relocation', '搬遷'], ['scrap', '待報廢']])
+  }
+};
+
+// 班別設定：生產日從 08:00 起算，夜班整班算上班那天
+const DEFAULT_SHIFTS = {
+  timezone: 'Asia/Taipei',
+  dayStartTime: '08:00',
+  shifts: [
+    {
+      id: 'D', name: '早班', start: '08:00', end: '20:00',
+      work: [{ start: '08:00', end: '12:00' }, { start: '13:00', end: '17:00' }],
+      breaks: [{ start: '12:00', end: '13:00' }, { start: '17:00', end: '17:30' }],
+      overtime: [{ start: '17:30', end: '20:00' }]
+    },
+    {
+      id: 'N', name: '夜班', start: '20:00', end: '08:00',
+      work: [{ start: '20:00', end: '00:00' }, { start: '01:00', end: '05:00' }],
+      breaks: [{ start: '00:00', end: '01:00' }, { start: '05:00', end: '05:30' }],
+      overtime: [{ start: '05:30', end: '08:00' }]
+    }
+  ]
+};
+
+let pendingMessage = '';   // 下次顯示登入畫面時要出現的提示
+
+// 別的頁面把人登出時，會在網址帶 ?msg=inactive 回來
+if (new URLSearchParams(location.search).get('msg') === 'inactive') {
+  pendingMessage = '帳號未啟用，請找管理者';
+  history.replaceState(null, '', location.pathname);   // 清掉網址參數
+}
+
+// 三個畫面一次只顯示一個
+function show(viewId) {
+  for (const id of ['view-loading', 'view-login', 'view-home']) {
+    $(id).hidden = id !== viewId;
+  }
+}
+
+function setLoginError(message) { $('login-error').textContent = message; }
+function setPwError(message) { $('pw-error').textContent = message; }
+
+// ---------- 登入狀態改變時（開網頁、登入、登出都會跑這段） ----------
+watchAuth(async (user) => {
+  if (!user) {
+    setLoginError(pendingMessage);
+    pendingMessage = '';
+    show('view-login');
+    return;
+  }
+  $('loading-text').textContent = '讀取人員資料…';
+  $('btn-retry').hidden = true;
+  show('view-loading');
+  try {
+    const profile = await loadProfile(user);
+    if (!profile || profile.active !== true) {
+      pendingMessage = '帳號未啟用，請找管理者';
+      await logout();   // 登出後會再跑一次這段，顯示登入畫面和提示
+      return;
+    }
+    renderHome(profile);
+    show('view-home');
+  } catch (err) {
+    // 多半是網路問題：保留登入狀態，讓使用者按重新整理
+    $('loading-text').textContent = errorMessage(err);
+    $('btn-retry').hidden = false;
+  }
+});
+
+$('btn-retry').addEventListener('click', () => location.reload());
+
+// ---------- 登入 ----------
+$('login-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const empNo = normalizeEmpNo($('login-empno').value);
+  const password = $('login-password').value;
+  if (!EMPNO_PATTERN.test(empNo)) { setLoginError('工號是英文或數字，2～10 碼'); return; }
+  if (!password) { setLoginError('請輸入密碼'); return; }
+  setLoginError('');
+  setBusy($('login-btn'), true, '登入中…');
+  try {
+    await login(empNo, password, $('login-keep').checked);
+    $('login-password').value = '';
+    // 登入成功後，上面的 watchAuth 會自動切到首頁
+  } catch (err) {
+    setLoginError(errorMessage(err));
+  } finally {
+    setBusy($('login-btn'), false);
+  }
+});
+
+// ---------- 首頁 ----------
+function renderHome(profile) {
+  $('home-name').textContent = profile.name;
+  $('home-role').textContent = ROLE_LABELS[profile.role] || profile.role;
+  $('module-keys').innerHTML = MODULES
+    .filter((m) => m.roles.includes(profile.role))
+    .map((m) => m.href
+      ? `<a class="key" href="${m.href}"><span class="key-label">${m.label}</span><span class="key-desc">${m.desc}</span></a>`
+      : `<div class="key is-soon" aria-disabled="true"><span class="key-label">${m.label}</span><span class="key-desc">${m.desc}</span><span class="soon">準備中</span></div>`)
+    .join('');
+  if (profile.role === 'admin') {
+    checkSetup();
+  } else {
+    $('setup-card').hidden = true;
+  }
+}
+
+// 管理者：檢查預設資料建了沒，沒建才顯示「建立預設資料」
+async function checkSetup() {
+  try {
+    const [dept, shifts] = await Promise.all([
+      getDoc(doc(db, 'departments', 'milling')),
+      getDoc(doc(db, 'settings', 'shifts'))
+    ]);
+    $('setup-card').hidden = dept.exists() && shifts.exists();
+  } catch (err) {
+    $('setup-card').hidden = true;
+    toast(errorMessage(err), 'error');
+  }
+}
+
+$('btn-setup').addEventListener('click', async () => {
+  if (!confirm('要建立銑床課和班別的預設資料嗎？已經有的資料不會被覆蓋。')) return;
+  setBusy($('btn-setup'), true, '建立中…');
+  try {
+    const deptRef = doc(db, 'departments', 'milling');
+    const shiftsRef = doc(db, 'settings', 'shifts');
+    const [dept, shifts] = await Promise.all([getDoc(deptRef), getDoc(shiftsRef)]);
+    const stamp = { updatedAt: serverTimestamp(), updatedByEmpNo: myEmpNo() };   // 誰、什麼時候建的
+    const batch = writeBatch(db);   // 一次寫入，不會只寫一半
+    if (!dept.exists()) batch.set(deptRef, { ...DEFAULT_MILLING, ...stamp });
+    if (!shifts.exists()) batch.set(shiftsRef, { ...DEFAULT_SHIFTS, ...stamp });
+    await batch.commit();
+    $('setup-card').hidden = true;
+    toast('預設資料已建立');
+  } catch (err) {
+    toast(errorMessage(err), 'error');
+  } finally {
+    setBusy($('btn-setup'), false);
+  }
+});
+
+// ---------- 登出 ----------
+$('btn-logout').addEventListener('click', () => logout());
+
+// ---------- 修改密碼 ----------
+$('btn-password').addEventListener('click', () => {
+  $('password-form').reset();
+  setPwError('');
+  $('dlg-password').showModal();
+});
+$('pw-cancel').addEventListener('click', () => $('dlg-password').close());
+
+$('password-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const current = $('pw-current').value;
+  const next = $('pw-new').value;
+  if (!current) { setPwError('請輸入目前密碼'); return; }
+  if (next.length < 8) { setPwError('新密碼至少要 8 碼'); return; }
+  if (next !== $('pw-confirm').value) { setPwError('兩次輸入的新密碼不一樣'); return; }
+  if (next === current) { setPwError('新密碼不能和目前密碼一樣'); return; }
+  setPwError('');
+  setBusy($('pw-save'), true, '儲存中…');
+  try {
+    await changePassword(current, next);
+    $('dlg-password').close();
+    toast('密碼已更新，下次請用新密碼登入');
+  } catch (err) {
+    const wrongPassword = ['auth/invalid-credential', 'auth/wrong-password'].includes(err?.code);
+    setPwError(wrongPassword ? '目前密碼不對' : errorMessage(err));
+  } finally {
+    setBusy($('pw-save'), false);
+  }
+});
+</script>
+</body>
+</html>

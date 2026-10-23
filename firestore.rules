@@ -1,0 +1,95 @@
+rules_version = '2';
+
+// ============================================================
+// CNC MES 安全規則（功能①：登入＋人員）
+// 發布方式：Firebase 主控台 → Firestore →「规则」→ 全部取代貼上 →「发布」
+// 重點：沒登入、沒有人員資料、或已停用 → 什麼都不能讀寫
+// 前提：Authentication 已關閉自行註冊，帳號只能在主控台建立
+// ============================================================
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ---------- 共用判斷 ----------
+
+    // 已登入，而且是「電子郵件／密碼」帳號
+    function signedIn() {
+      return request.auth != null
+        && request.auth.token.email != null
+        && request.auth.token.firebase.sign_in_provider == 'password';
+    }
+
+    // 從登入帳號取出工號：t001@cnc-mes.firebaseapp.com → T001
+    function myEmpNo() {
+      return request.auth.token.email.split('@')[0].upper();
+    }
+
+    function myProfilePath() {
+      return /databases/$(database)/documents/users/$(myEmpNo());
+    }
+
+    // 在職：有人員資料，而且 active 是 true
+    function isActive() {
+      return signedIn()
+        && exists(myProfilePath())
+        && get(myProfilePath()).data.active == true;
+    }
+
+    // 管理者：在職，而且角色是 admin
+    function isAdmin() {
+      return isActive() && get(myProfilePath()).data.role == 'admin';
+    }
+
+    // 寫入時必須蓋上「伺服器時間」和「本人工號」
+    function stamped() {
+      return request.resource.data.updatedAt == request.time
+        && request.resource.data.updatedByEmpNo == myEmpNo();
+    }
+
+    // 人員資料的欄位檢查
+    function validUser(empNo) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(['empNo', 'name', 'role', 'deptIds', 'active', 'updatedAt', 'updatedByEmpNo'])
+        && d.keys().hasAll(['empNo', 'name', 'role', 'deptIds', 'active', 'updatedAt', 'updatedByEmpNo'])
+        && empNo.matches('^[A-Z0-9]{2,10}$')
+        && d.empNo == empNo
+        && d.name is string && d.name.size() >= 1 && d.name.size() <= 20
+        && d.role in ['admin', 'maintainer', 'viewer']
+        && d.deptIds is list && d.deptIds.size() <= 20
+        && d.active is bool
+        && stamped();
+    }
+
+    // 管理者不能拿掉自己的管理者權限，也不能停用自己
+    function notLockingSelf(empNo) {
+      return empNo != myEmpNo()
+        || (request.resource.data.role == 'admin' && request.resource.data.active == true);
+    }
+
+    // ---------- 人員 users/{工號} ----------
+    match /users/{empNo} {
+      // 本人可以讀自己的資料（停用了也能讀，畫面才能顯示「帳號未啟用」）；管理者可以讀全部
+      allow read: if (signedIn() && myEmpNo() == empNo) || isAdmin();
+      allow create: if isAdmin() && validUser(empNo);
+      allow update: if isAdmin() && validUser(empNo) && notLockingSelf(empNo);
+      // 任何人都不能刪除（離職改成停用，紀錄才追得回去）
+      allow delete: if false;
+    }
+
+    // ---------- 單位 departments/{單位代號} ----------
+    match /departments/{deptId} {
+      allow read: if isActive();
+      allow create, update: if isAdmin() && stamped();
+      allow delete: if false;
+    }
+
+    // ---------- 系統設定 settings/{設定名稱}，例：shifts 班別 ----------
+    match /settings/{settingId} {
+      allow read: if isActive();
+      allow create, update: if isAdmin() && stamped();
+      allow delete: if false;
+    }
+
+    // 其他集合（machines、machineStatus、machineEvents…）還沒做到，
+    // 這裡沒寫就等於全部鎖住，做到該功能時再開放。
+  }
+}

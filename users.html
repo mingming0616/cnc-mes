@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>人員管理｜CNC MES</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="btn ghost" href="index.html">回首頁</a>
+  <span class="topbar-title">人員管理</span>
+</header>
+
+<main class="page">
+  <!-- 載入中、沒有權限、讀取錯誤時顯示這裡 -->
+  <div id="state" class="state">載入中…</div>
+
+  <section id="panel" hidden>
+    <div class="toolbar">
+      <button id="btn-add" class="btn primary" type="button">新增人員</button>
+      <label class="check">
+        <input id="show-inactive" type="checkbox">
+        <span>顯示已停用</span>
+      </label>
+    </div>
+
+    <!-- 新增人員後的提醒：還要到主控台建立登入帳號 -->
+    <div id="account-hint" class="hint" hidden>
+      <h2>還差一步：建立登入帳號</h2>
+      <p>到 Firebase 主控台 → Authentication →「用户」→「添加用户」，電子郵件填：</p>
+      <div class="copy-row">
+        <code id="hint-email"></code>
+        <button id="hint-copy" class="btn" type="button">複製</button>
+      </div>
+      <p class="muted">密碼由你設定，私下交給本人，請他第一次登入後自己修改。</p>
+      <button id="hint-close" class="btn" type="button">知道了</button>
+    </div>
+
+    <!-- 新增／編輯表單 -->
+    <form id="user-form" class="sheet" hidden novalidate>
+      <h2 id="form-title">新增人員</h2>
+      <label class="field">
+        <span>工號</span>
+        <input id="f-empno" type="text" autocapitalize="characters" spellcheck="false" maxlength="10">
+      </label>
+      <label class="field">
+        <span>姓名</span>
+        <input id="f-name" type="text" maxlength="20">
+      </label>
+      <fieldset class="field">
+        <legend>角色</legend>
+        <div class="seg">
+          <label><input type="radio" name="role" value="admin"><span>管理者</span></label>
+          <label><input type="radio" name="role" value="maintainer"><span>維護員</span></label>
+          <label><input type="radio" name="role" value="viewer"><span>檢視</span></label>
+        </div>
+      </fieldset>
+      <fieldset class="field">
+        <legend>負責單位</legend>
+        <div id="f-depts" class="checks"></div>
+      </fieldset>
+      <label class="check">
+        <input id="f-active" type="checkbox">
+        <span>在職</span>
+      </label>
+      <!-- 既有人員才顯示：忘記密碼時，在主控台刪掉帳號後，用這個帳號重建 -->
+      <div id="f-account" hidden>
+        <p class="muted">登入帳號（忘記密碼時，在主控台刪掉後用同一個帳號重建）：</p>
+        <div class="copy-row">
+          <code id="f-email"></code>
+          <button id="f-copy" class="btn" type="button">複製帳號</button>
+        </div>
+      </div>
+      <p id="f-note" class="muted notes"></p>
+      <p id="f-error" class="form-error" role="alert"></p>
+      <div class="row-actions">
+        <button id="f-cancel" class="btn" type="button">取消</button>
+        <button id="f-save" class="btn primary" type="submit">儲存</button>
+      </div>
+    </form>
+
+    <!-- 人員清單 -->
+    <ul id="user-list" class="ledger" aria-label="人員清單"></ul>
+  </section>
+</main>
+
+<script type="module">
+// ============================================================
+// users.html：人員管理（只有管理者能用）
+// 人員資料存在 users/{工號}；登入帳號要另外到 Firebase 主控台建立
+// 規則：不能刪除人員（離職改停用）、工號建立後不能改、
+//      管理者不能拿掉自己的權限或停用自己
+// ============================================================
+import {
+  db, collection, getDocs, doc, getDoc, setDoc, serverTimestamp,
+  requireUser, myEmpNo, normalizeEmpNo, empNoToEmail, EMPNO_PATTERN, ROLE_LABELS,
+  errorMessage, escapeHtml, toast, setBusy, formatTime, copyText
+} from './common.js';
+
+const $ = (id) => document.getElementById(id);
+const roleInputs = [...document.querySelectorAll('input[name="role"]')];
+
+let users = [];      // 全部人員（依工號排序）
+let depts = [];      // 全部單位（依 sortOrder 排序）
+let editing = null;  // 正在編輯的工號；null 代表「新增」
+
+// ---------- 權限檢查：沒登入會被帶回登入頁 ----------
+const ctx = await requireUser({ adminOnly: true });
+if (ctx.error) {
+  $('state').textContent = errorMessage(ctx.error);
+} else if (ctx.forbidden) {
+  $('state').innerHTML = '<p>沒有權限：人員管理只有管理者能使用。</p><a class="btn" href="index.html">回首頁</a>';
+} else {
+  try {
+    await loadAll();
+    $('state').hidden = true;
+    $('panel').hidden = false;
+  } catch (err) {
+    $('state').textContent = errorMessage(err);
+  }
+}
+
+// 讀取全部人員和單位
+async function loadAll() {
+  const [userSnap, deptSnap] = await Promise.all([
+    getDocs(collection(db, 'users')),
+    getDocs(collection(db, 'departments'))
+  ]);
+  users = userSnap.docs
+    .map((d) => ({ ...d.data(), empNo: d.id }))
+    .sort((a, b) => a.empNo.localeCompare(b.empNo));
+  depts = deptSnap.docs
+    .map((d) => ({ ...d.data(), id: d.id }))
+    .sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99));
+  renderList();
+}
+
+// 單位代號 → 名稱（例：milling → 銑床課）
+function deptNames(ids) {
+  if (!Array.isArray(ids) || ids.length === 0) return '—';
+  return ids.map((id) => depts.find((d) => d.id === id)?.name || id).join('、');
+}
+
+// ---------- 人員清單 ----------
+function renderList() {
+  const showInactive = $('show-inactive').checked;
+  const rows = users.filter((u) => showInactive || u.active === true);
+  const head = '<li class="ledger-head" aria-hidden="true"><span>工號</span><span>姓名</span><span>角色</span><span>負責單位</span><span>狀態</span></li>';
+  if (rows.length === 0) {
+    $('user-list').innerHTML = `${head}<li class="empty">沒有符合的人員。按「新增人員」開始。</li>`;
+    return;
+  }
+  $('user-list').innerHTML = head + rows.map((u) => `
+    <li>
+      <button type="button" class="ledger-row${u.active === true ? '' : ' is-off'}" data-empno="${escapeHtml(u.empNo)}">
+        <span class="col-empno">${escapeHtml(u.empNo)}</span>
+        <span class="col-name">${escapeHtml(u.name)}</span>
+        <span class="col-role">${escapeHtml(ROLE_LABELS[u.role] || u.role)}</span>
+        <span class="col-dept">${escapeHtml(deptNames(u.deptIds))}</span>
+        <span class="col-state"><span class="tag${u.active === true ? '' : ' tag-off'}">${u.active === true ? '在職' : '停用'}</span></span>
+      </button>
+    </li>`).join('');
+}
+
+$('show-inactive').addEventListener('change', renderList);
+$('user-list').addEventListener('click', (event) => {
+  const row = event.target.closest('.ledger-row');
+  if (row) openForm(row.dataset.empno);
+});
+$('btn-add').addEventListener('click', () => openForm(null));
+$('f-cancel').addEventListener('click', closeForm);
+$('hint-close').addEventListener('click', () => { $('account-hint').hidden = true; });
+$('hint-copy').addEventListener('click', () => copyText($('hint-email').textContent));
+$('f-copy').addEventListener('click', () => copyText($('f-email').textContent));
+
+// ---------- 新增／編輯表單 ----------
+function renderDeptChecks(selected) {
+  if (depts.length === 0) {
+    $('f-depts').innerHTML = '<p class="muted">還沒有單位資料，請先回首頁按「建立預設資料」。</p>';
+    return;
+  }
+  $('f-depts').innerHTML = depts.map((d) => `
+    <label class="check">
+      <input type="checkbox" value="${escapeHtml(d.id)}"${selected.includes(d.id) ? ' checked' : ''}>
+      <span>${escapeHtml(d.name || d.id)}</span>
+    </label>`).join('');
+}
+
+function openForm(empNo) {
+  const user = empNo ? users.find((u) => u.empNo === empNo) : null;
+  const isSelf = !!user && user.empNo === myEmpNo();
+  editing = user ? user.empNo : null;
+
+  $('form-title').textContent = user ? `編輯 ${user.empNo}` : '新增人員';
+  $('f-empno').value = user ? user.empNo : '';
+  $('f-empno').disabled = !!user;                     // 工號建立後不能改
+  $('f-name').value = user ? user.name : '';
+  const role = user ? user.role : 'maintainer';       // 新增時預設「維護員」
+  roleInputs.forEach((r) => { r.checked = r.value === role; r.disabled = isSelf; });
+  renderDeptChecks(user ? (user.deptIds || []) : (depts.length === 1 ? [depts[0].id] : []));
+  $('f-active').checked = user ? user.active === true : true;
+  $('f-active').disabled = isSelf;                    // 不能停用自己
+
+  // 既有人員：顯示登入帳號
+  $('f-account').hidden = !user;
+  $('f-email').textContent = user ? empNoToEmail(user.empNo) : '';
+
+  const notes = [];
+  if (isSelf) notes.push('這是你自己的帳號：不能修改自己的角色和在職狀態。');
+  if (user) notes.push('工號建立後不能修改；打錯請停用，再用正確工號重建。');
+  if (user) notes.push(`最後更新：${formatTime(user.updatedAt)}${user.updatedByEmpNo ? `（${user.updatedByEmpNo}）` : ''}`);
+  $('f-note').textContent = notes.join('\n');
+  $('f-error').textContent = '';
+  $('account-hint').hidden = true;
+  $('user-form').hidden = false;
+  $('user-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  (user ? $('f-name') : $('f-empno')).focus({ preventScroll: true });
+}
+
+function closeForm() {
+  $('user-form').hidden = true;
+  editing = null;
+}
+
+$('user-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const isNew = editing === null;
+  const empNo = isNew ? normalizeEmpNo($('f-empno').value) : editing;
+  const name = $('f-name').value.trim();
+  const role = roleInputs.find((r) => r.checked)?.value;
+  const deptIds = [...$('f-depts').querySelectorAll('input:checked')].map((i) => i.value);
+  const active = $('f-active').checked;
+  const fail = (message) => { $('f-error').textContent = message; };
+
+  // 先在畫面上檢查，安全規則會再檢查一次
+  if (!EMPNO_PATTERN.test(empNo)) return fail('工號是英文或數字，2～10 碼');
+  if (!name) return fail('請輸入姓名');
+  if (!role) return fail('請選擇角色');
+  if (isNew && users.some((u) => u.empNo === empNo)) return fail(`工號 ${empNo} 已經有人員資料`);
+  if (empNo === myEmpNo() && (role !== 'admin' || !active)) return fail('不能修改自己的角色和在職狀態');
+  fail('');
+
+  setBusy($('f-save'), true, '儲存中…');
+  try {
+    const ref = doc(db, 'users', empNo);
+    if (isNew && (await getDoc(ref)).exists()) {    // 再確認一次，避免兩個人同時新增同一個工號
+      fail(`工號 ${empNo} 已經有人員資料`);
+      return;
+    }
+    await setDoc(ref, {
+      empNo, name, role, deptIds, active,
+      updatedAt: serverTimestamp(),   // 伺服器時間
+      updatedByEmpNo: myEmpNo()       // 誰改的
+    });
+    closeForm();
+    await loadAll();
+    toast(isNew ? `已新增 ${empNo} ${name}` : `已儲存 ${empNo} ${name}`);
+    if (isNew) {
+      $('hint-email').textContent = empNoToEmail(empNo);
+      $('account-hint').hidden = false;
+      $('account-hint').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    }
+  } catch (err) {
+    fail(errorMessage(err));
+  } finally {
+    setBusy($('f-save'), false);
+  }
+});
+</script>
+</body>
+</html>
