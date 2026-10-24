@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>設備看板｜CNC MES</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=2">
+<!-- 看板專用樣式；board.css 改版時把 v 的數字加 1 -->
+<link rel="stylesheet" href="board.css?v=1">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="btn ghost" href="index.html">回首頁</a>
+  <span class="topbar-title">設備看板</span>
+  <span id="conn" class="conn">連線中…</span>
+</header>
+
+<main class="page page-wide">
+  <!-- 載入中、讀取錯誤時顯示這裡 -->
+  <div id="state" class="state">載入中…</div>
+
+  <section id="panel" hidden>
+    <div class="filters board-filters">
+      <label class="field"><span>單位</span><select id="f-dept"></select></label>
+      <label class="field"><span>樓層</span><select id="f-floor"></select></label>
+    </div>
+    <!-- 每種狀態各幾台 -->
+    <div id="summary" class="summary" aria-label="狀態統計"></div>
+    <!-- 故障、品質異常的機台 -->
+    <div id="alerts" class="alerts" hidden></div>
+    <!-- 依樓層分區的機台卡片 -->
+    <div id="floors"></div>
+  </section>
+</main>
+
+<!-- ========== 機台面板：查看詳細、切換狀態 ========== -->
+<dialog id="dlg-machine">
+  <form id="machine-form" class="dialog-body" novalidate>
+    <h2 id="mp-title" class="mp-title"></h2>
+    <p id="mp-sub" class="muted"></p>
+    <p id="mp-current"></p>
+
+    <div id="mp-edit">
+      <fieldset class="field">
+        <legend>狀態</legend>
+        <div id="mp-statuses" class="status-grid"></div>
+      </fieldset>
+      <fieldset id="mp-reason-box" class="field" hidden>
+        <legend id="mp-reason-legend">原因</legend>
+        <div id="mp-reasons" class="reason-grid"></div>
+      </fieldset>
+      <div class="form-grid">
+        <label class="field"><span>料號（可不填）</span><input id="mp-part" type="text" maxlength="40" spellcheck="false"></label>
+        <label class="field"><span>製程（可不填）</span><input id="mp-op" type="text" maxlength="20" spellcheck="false" placeholder="例：OP10"></label>
+      </div>
+      <label class="field"><span>備註（可不填）</span><input id="mp-note" type="text" maxlength="100"></label>
+    </div>
+
+    <p id="mp-readonly" class="muted" hidden></p>
+    <p id="mp-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="mp-close" class="btn" type="button">關閉</button>
+      <button id="mp-save" class="btn primary" type="submit">確認</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+// ============================================================
+// board.html：設備看板（所有角色都能看）
+//   讀：departments（狀態、原因、顏色）、floors、machines、settings/shifts 各讀一次
+//   即時監聽：machineStatus（有人改了，幾秒內自動更新）
+//   切換狀態：一次寫入「目前狀態 machineStatus」＋「事件紀錄 machineEvents」
+//   誰能切換：管理者（全部單位）、維護員（負責單位）；檢視只能看
+// ============================================================
+import {
+  db, collection, getDocs, doc, getDoc, writeBatch, serverTimestamp, onSnapshot,
+  requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime,
+  formatDuration, prodDateAndShift
+} from './common.js?v=2';
+
+const $ = (id) => document.getElementById(id);
+const FILTER_KEY = 'cncmes-board-filters';   // 記住這台裝置上次選的單位、樓層
+
+let me = null;               // 登入者的人員資料
+let depts = [];              // 單位（含狀態、原因設定）
+let floors = [];             // 使用中的樓層
+let machines = [];           // 使用中的設備
+let shiftSetting = null;     // 班別設定
+const statusMap = new Map(); // 設備編號 → { data: 目前狀態, pending: 是否還在同步 }
+let current = null;          // 面板正在看的設備編號
+let picked = { status: '', reason: '' };   // 面板裡選的狀態、原因
+
+// ---------- 小工具 ----------
+const naturalCompare = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'en', { numeric: true });
+const bySortOrder = (idKey) => (a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || naturalCompare(a[idKey], b[idKey]);
+const deptOf = (id) => depts.find((d) => d.id === id);
+const floorName = (id) => floors.find((f) => f.floorId === id)?.name || id || '—';
+const machineOf = (id) => machines.find((m) => m.machineId === id);
+const statusDef = (deptId, code) => deptOf(deptId)?.statuses?.find((s) => s.code === code) || null;
+const activeReasons = (deptId, code) => (deptOf(deptId)?.reasons?.[code] || []).filter((r) => r.active !== false);
+const reasonLabel = (deptId, status, code) =>
+  (code ? (deptOf(deptId)?.reasons?.[status]?.find((r) => r.code === code)?.label || code) : '');
+// 顏色一定要是 #RRGGBB，避免設定打錯把畫面弄壞
+const safeColor = (hex) => (/^#[0-9a-f]{6}$/i.test(hex || '') ? hex : '#9AA0A6');
+// 這個狀態從什麼時候開始（毫秒）
+const sinceMs = (machineId) => statusMap.get(machineId)?.data?.statusSince?.toMillis?.() ?? Date.now();
+
+// 狀態底色上的字色：白字、深色字選對比比較高的那個（黃、橘、淺灰底會用深色字）
+function textColorOn(hex) {
+  const n = parseInt(safeColor(hex).slice(1), 16);
+  const channel = (v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
+  const inkLum = 0.0175;   // 深色字 #1D262D 的亮度
+  return (1.05 / (lum + 0.05)) >= ((lum + 0.05) / (inkLum + 0.05)) ? '#FFFFFF' : '#1D262D';
+}
+
+function colorStyle(hex) {
+  const color = safeColor(hex);
+  return `--c:${color};--fg:${textColorOn(color)}`;
+}
+
+// 誰能切換這台的狀態
+function canEdit(machine) {
+  if (me.role === 'admin') return true;
+  return me.role === 'maintainer' && (me.deptIds || []).includes(machine.deptId);
+}
+
+function setConn(online) {
+  $('conn').textContent = online ? '即時更新中' : '離線：畫面可能不是最新';
+  $('conn').classList.toggle('is-offline', !online);
+}
+
+// ---------- 開始：權限檢查、讀主檔、監聽狀態 ----------
+const ctx = await requireUser();
+if (ctx.error) {
+  $('state').textContent = errorMessage(ctx.error);
+} else {
+  me = ctx.profile;
+  try {
+    await loadMaster();
+    setupFilters();
+    listenStatus();
+    $('state').hidden = true;
+    $('panel').hidden = false;
+  } catch (err) {
+    $('state').textContent = errorMessage(err);
+  }
+}
+
+async function loadMaster() {
+  const [deptSnap, floorSnap, machineSnap, shiftSnap] = await Promise.all([
+    getDocs(collection(db, 'departments')),
+    getDocs(collection(db, 'floors')),
+    getDocs(collection(db, 'machines')),
+    getDoc(doc(db, 'settings', 'shifts'))
+  ]);
+  depts = deptSnap.docs.map((d) => ({ ...d.data(), id: d.id })).sort(bySortOrder('id'));
+  floors = floorSnap.docs.map((d) => ({ ...d.data(), floorId: d.id }))
+    .filter((f) => f.active === true).sort(bySortOrder('floorId'));
+  machines = machineSnap.docs.map((d) => ({ ...d.data(), machineId: d.id }))
+    .filter((m) => m.active === true).sort(bySortOrder('machineId'));
+  shiftSetting = shiftSnap.exists() ? shiftSnap.data() : null;
+}
+
+// 單位、樓層篩選（記住這台裝置上次的選擇）
+function setupFilters() {
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem(FILTER_KEY) || '{}'); } catch { saved = {}; }
+  $('f-dept').innerHTML = '<option value="">全部單位</option>'
+    + depts.map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
+  $('f-floor').innerHTML = '<option value="">全部樓層</option>'
+    + floors.map((f) => `<option value="${escapeHtml(f.floorId)}">${escapeHtml(f.name)}</option>`).join('');
+  const pick = (select, value) => {
+    if ([...select.options].some((o) => o.value === value)) select.value = value;
+  };
+  pick($('f-dept'), saved.dept ?? ((me.deptIds || [])[0] || ''));
+  pick($('f-floor'), saved.floor ?? '');
+  for (const id of ['f-dept', 'f-floor']) {
+    $(id).addEventListener('change', () => {
+      try {
+        localStorage.setItem(FILTER_KEY, JSON.stringify({ dept: $('f-dept').value, floor: $('f-floor').value }));
+      } catch { /* 無痕模式存不了也沒關係 */ }
+      render();
+    });
+  }
+}
+
+// 即時監聽全部機台的目前狀態（只有有變動的那幾筆會再讀，不重複讀取）
+function listenStatus() {
+  onSnapshot(collection(db, 'machineStatus'), { includeMetadataChanges: true }, (snap) => {
+    statusMap.clear();
+    snap.forEach((d) => {
+      statusMap.set(d.id, {
+        data: d.data({ serverTimestamps: 'estimate' }),   // 還沒同步完的時間先用估計值顯示
+        pending: d.metadata.hasPendingWrites
+      });
+    });
+    setConn(!snap.metadata.fromCache);
+    render();
+    if (current) renderCurrent(machineOf(current));   // 面板開著時，同步更新「目前」那一行
+  }, (err) => {
+    setConn(false);
+    toast(errorMessage(err), 'error');
+  });
+}
+
+// ---------- 畫面 ----------
+function render() {
+  const deptId = $('f-dept').value;
+  const floorId = $('f-floor').value;
+  const list = machines.filter((m) => (!deptId || m.deptId === deptId) && (!floorId || m.floorId === floorId));
+  renderSummary(list);
+  renderAlerts(list);
+  renderFloors(list);
+}
+
+function renderSummary(list) {
+  const base = deptOf($('f-dept').value) || depts[0];
+  const counts = new Map();
+  let unset = 0;
+  for (const m of list) {
+    const s = statusMap.get(m.machineId)?.data;
+    if (!s) { unset += 1; continue; }
+    counts.set(s.status, (counts.get(s.status) || 0) + 1);
+  }
+  const running = counts.get('running') || 0;
+  const percent = list.length ? Math.round((running / list.length) * 100) : 0;
+  const chips = (base?.statuses || []).map((s) => {
+    const n = counts.get(s.code) || 0;
+    return `<span class="sum-chip${n ? '' : ' is-zero'}"><span class="sum-dot" style="${colorStyle(s.color)}"></span>${escapeHtml(s.label)}<b>${n}</b></span>`;
+  });
+  if (unset) chips.push(`<span class="sum-chip"><span class="sum-dot is-unset"></span>未設定<b>${unset}</b></span>`);
+  $('summary').innerHTML = `<span class="sum-total">共 ${list.length} 台，目前生產中 ${percent}%</span>${chips.join('')}`;
+}
+
+function renderAlerts(list) {
+  const items = list
+    .filter((m) => {
+      const s = statusMap.get(m.machineId)?.data;
+      return s && statusDef(m.deptId, s.status)?.alert === true;
+    })
+    .sort((a, b) => sinceMs(a.machineId) - sinceMs(b.machineId));   // 停最久的排前面
+  $('alerts').hidden = items.length === 0;
+  if (!items.length) { $('alerts').innerHTML = ''; return; }
+  $('alerts').innerHTML = `<span class="alerts-title">異常 ${items.length} 台</span>` + items.map((m) => {
+    const s = statusMap.get(m.machineId).data;
+    const def = statusDef(m.deptId, s.status);
+    const reason = reasonLabel(m.deptId, s.status, s.reasonCode);
+    const since = sinceMs(m.machineId);
+    return `<button type="button" class="alert-chip" data-id="${escapeHtml(m.machineId)}" style="${colorStyle(def?.color)}">`
+      + `${escapeHtml(m.machineId)} ${escapeHtml(def?.label || s.status)}${reason ? `（${escapeHtml(reason)}）` : ''} `
+      + `<span class="js-dur" data-since="${since}">${formatDuration(Date.now() - since)}</span></button>`;
+  }).join('');
+}
+
+function renderFloors(list) {
+  const byFloor = new Map();
+  for (const m of list) {
+    if (!byFloor.has(m.floorId)) byFloor.set(m.floorId, []);
+    byFloor.get(m.floorId).push(m);
+  }
+  const section = (title, ms) => `
+    <section class="floor-sec">
+      <h2 class="floor-title">${escapeHtml(title)}<span class="floor-count">${ms.length} 台</span></h2>
+      <div class="m-grid">${ms.map(cardHtml).join('')}</div>
+    </section>`;
+  const html = floors.filter((f) => byFloor.has(f.floorId)).map((f) => section(f.name, byFloor.get(f.floorId)));
+  const orphans = list.filter((m) => !floors.some((f) => f.floorId === m.floorId));
+  if (orphans.length) html.push(section('未指定樓層', orphans));
+  $('floors').innerHTML = html.join('') || '<p class="empty-board">沒有符合條件的設備。</p>';
+}
+
+function cardHtml(m) {
+  const id = escapeHtml(m.machineId);
+  const entry = statusMap.get(m.machineId);
+  if (!entry) {
+    return `<button type="button" class="m-card m-unset" data-id="${id}">`
+      + `<span class="m-id">${id}</span><span class="m-status">未設定</span>`
+      + `<span class="m-model">${escapeHtml(m.model)}</span></button>`;
+  }
+  const s = entry.data;
+  const def = statusDef(m.deptId, s.status);
+  const reason = reasonLabel(m.deptId, s.status, s.reasonCode);
+  const part = [s.partNo, s.opNo].filter(Boolean).join(' ');
+  const since = sinceMs(m.machineId);
+  return `<button type="button" class="m-card${def?.alert ? ' m-alert' : ''}${entry.pending ? ' m-pending' : ''}" data-id="${id}" style="${colorStyle(def?.color)}">`
+    + `<span class="m-id">${id}</span>`
+    + `<span class="m-status">${escapeHtml(def?.label || s.status)}</span>`
+    + (reason ? `<span class="m-reason">${escapeHtml(reason)}</span>` : '')
+    + `<span class="m-time js-dur" data-since="${since}">${formatDuration(Date.now() - since)}</span>`
+    + (part ? `<span class="m-part">${escapeHtml(part)}</span>` : '')
+    + '</button>';
+}
+
+// 持續時間每 30 秒更新一次（只改畫面上的字，不會讀資料庫）
+setInterval(() => {
+  const now = Date.now();
+  document.querySelectorAll('.js-dur').forEach((el) => {
+    el.textContent = formatDuration(now - Number(el.dataset.since));
+  });
+}, 30000);
+
+$('floors').addEventListener('click', (event) => {
+  const card = event.target.closest('.m-card');
+  if (card) openPanel(card.dataset.id);
+});
+$('alerts').addEventListener('click', (event) => {
+  const chip = event.target.closest('.alert-chip');
+  if (chip) openPanel(chip.dataset.id);
+});
+
+// ---------- 機台面板 ----------
+function openPanel(machineId) {
+  const machine = machineOf(machineId);
+  if (!machine) return;
+  current = machineId;
+  const s = statusMap.get(machineId)?.data;
+  picked = { status: s?.status || '', reason: s?.reasonCode || '' };
+
+  $('mp-title').textContent = machine.machineId;
+  $('mp-sub').textContent = `${machine.category}，${machine.brand} ${machine.model}，${floorName(machine.floorId)}`;
+  renderCurrent(machine);
+
+  const editable = canEdit(machine);
+  $('mp-edit').hidden = !editable;
+  $('mp-save').hidden = !editable;
+  $('mp-readonly').hidden = editable;
+  $('mp-readonly').textContent = me.role === 'viewer' ? '檢視帳號只能查看。' : '你不負責這個單位，只能查看。';
+  if (editable) {
+    renderStatusButtons(machine);
+    renderReasonButtons(machine);
+    $('mp-part').value = s?.partNo || '';
+    $('mp-op').value = s?.opNo || '';
+    $('mp-note').value = s?.note || '';
+  }
+  $('mp-error').textContent = '';
+  $('dlg-machine').showModal();
+}
+
+function renderCurrent(machine) {
+  if (!machine) return;
+  const entry = statusMap.get(machine.machineId);
+  if (!entry) {
+    $('mp-current').textContent = '目前：未設定';
+    return;
+  }
+  const s = entry.data;
+  const def = statusDef(machine.deptId, s.status);
+  const reason = reasonLabel(machine.deptId, s.status, s.reasonCode);
+  const since = sinceMs(machine.machineId);
+  $('mp-current').innerHTML =
+    `目前：<b>${escapeHtml(def?.label || s.status)}</b>${reason ? `（${escapeHtml(reason)}）` : ''}，`
+    + `已經 <span class="js-dur" data-since="${since}">${formatDuration(Date.now() - since)}</span><br>`
+    + `<span class="muted">${escapeHtml(s.updatedByName || '')}（${escapeHtml(s.updatedByEmpNo || '')}）${escapeHtml(formatTime(s.updatedAt))} 更新`
+    + `${entry.pending ? '，同步中…' : ''}</span>`;
+}
+
+function renderStatusButtons(machine) {
+  const defs = deptOf(machine.deptId)?.statuses || [];
+  $('mp-statuses').innerHTML = defs.map((d) =>
+    `<button type="button" class="st-btn" data-code="${escapeHtml(d.code)}" aria-pressed="${picked.status === d.code}" style="${colorStyle(d.color)}">${escapeHtml(d.label)}</button>`
+  ).join('');
+}
+
+function renderReasonButtons(machine) {
+  const need = statusDef(machine.deptId, picked.status)?.needsReason || 'none';
+  const list = activeReasons(machine.deptId, picked.status);
+  const show = need !== 'none' && list.length > 0;
+  $('mp-reason-box').hidden = !show;
+  if (!show) {
+    picked.reason = '';
+    $('mp-reasons').innerHTML = '';
+    return;
+  }
+  $('mp-reason-legend').textContent = need === 'required' ? '原因（必選）' : '原因（可不選）';
+  $('mp-reasons').innerHTML = list.map((r) =>
+    `<button type="button" class="rs-btn" data-code="${escapeHtml(r.code)}" aria-pressed="${picked.reason === r.code}">${escapeHtml(r.label)}</button>`
+  ).join('');
+}
+
+$('mp-statuses').addEventListener('click', (event) => {
+  const button = event.target.closest('.st-btn');
+  if (!button) return;
+  const machine = machineOf(current);
+  if (picked.status !== button.dataset.code) {
+    picked = { status: button.dataset.code, reason: '' };   // 換了狀態，原因重選
+  }
+  renderStatusButtons(machine);
+  renderReasonButtons(machine);
+  $('mp-error').textContent = '';
+});
+
+$('mp-reasons').addEventListener('click', (event) => {
+  const button = event.target.closest('.rs-btn');
+  if (!button) return;
+  const machine = machineOf(current);
+  const need = statusDef(machine.deptId, picked.status)?.needsReason;
+  // 選填的原因再點一次可以取消；必選的只能換別的
+  picked.reason = (picked.reason === button.dataset.code && need !== 'required') ? '' : button.dataset.code;
+  renderReasonButtons(machine);
+  $('mp-error').textContent = '';
+});
+
+$('mp-close').addEventListener('click', () => $('dlg-machine').close());
+$('dlg-machine').addEventListener('close', () => { current = null; });
+
+// ---------- 切換狀態：目前狀態＋事件紀錄一次寫入 ----------
+$('machine-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const machine = machineOf(current);
+  if (!machine || !canEdit(machine)) return;
+  const entry = statusMap.get(machine.machineId);
+  const prev = entry?.data || null;
+  const fail = (message) => { $('mp-error').textContent = message; };
+
+  if (entry?.pending) return fail('上一筆還在同步，請等幾秒再存');
+  const def = statusDef(machine.deptId, picked.status);
+  if (!def) return fail('請選擇狀態');
+  if (def.needsReason === 'required' && activeReasons(machine.deptId, picked.status).length && !picked.reason) {
+    return fail('這個狀態要選原因');
+  }
+  const reasonCode = picked.reason || '';
+  const partNo = $('mp-part').value.trim();
+  const opNo = $('mp-op').value.trim();
+  const note = $('mp-note').value.trim();
+  const sameAsNow = prev && prev.status === picked.status && (prev.reasonCode || '') === reasonCode
+    && (prev.partNo || '') === partNo && (prev.opNo || '') === opNo && (prev.note || '') === note;
+  if (sameAsNow) {
+    $('dlg-machine').close();
+    toast('沒有變更');
+    return;
+  }
+  if (!shiftSetting) return fail('找不到班別設定，請管理者回首頁按「建立預設資料」');
+  const { prodDate, shiftId } = prodDateAndShift(new Date(), shiftSetting);
+  if (!shiftId) return fail('現在的時間不在任何班別裡，請檢查班別設定');
+  // 狀態或原因有變 → 重新計時；只改料號、製程、備註 → 沿用原本的開始時間
+  const restart = !prev || prev.status !== picked.status || (prev.reasonCode || '') !== reasonCode;
+  fail('');
+
+  setBusy($('mp-save'), true, '儲存中…');
+  try {
+    const empNo = myEmpNo();
+    const batch = writeBatch(db);   // 兩筆一起寫，不會只寫一半
+    const eventRef = doc(collection(db, 'machineEvents'));   // 事件紀錄用自動編號
+    batch.set(eventRef, {
+      eventType: 'statusChange',
+      machineId: machine.machineId,
+      deptId: machine.deptId,
+      fromStatus: prev ? prev.status : null,            // 第一次設定時是 null
+      fromStatusSince: prev ? prev.statusSince : null,
+      toStatus: picked.status,
+      reasonCode, note, partNo, opNo,
+      prodDate, shiftId,                                // 生產日、班別在寫入當下算好
+      createdAt: serverTimestamp(),
+      createdByEmpNo: empNo,
+      createdByName: me.name
+    });
+    batch.set(doc(db, 'machineStatus', machine.machineId), {
+      machineId: machine.machineId,
+      deptId: machine.deptId,
+      status: picked.status,
+      reasonCode, note, partNo, opNo,
+      statusSince: restart ? serverTimestamp() : prev.statusSince,
+      lastEventId: eventRef.id,                         // 指向這次的事件紀錄（規則會檢查）
+      updatedAt: serverTimestamp(),
+      updatedByEmpNo: empNo,
+      updatedByName: me.name
+    });
+
+    // 網路慢的時候：6 秒後先關面板，資料會在連線恢復後自動送出
+    const commit = batch.commit();
+    const slow = new Promise((resolve) => { setTimeout(() => resolve('slow'), 6000); });
+    const result = await Promise.race([commit.then(() => 'ok'), slow]);
+    $('dlg-machine').close();
+    if (result === 'ok') {
+      toast(`${machine.machineId} 已改成${def.label}`);
+    } else {
+      toast('網路不穩：已先記在這台裝置，連線恢復後會自動送出（這個頁面先不要關）', 'error');
+      commit
+        .then(() => toast(`${machine.machineId} 已送出`))
+        .catch((err) => toast(`${machine.machineId} 沒有存進去：${errorMessage(err)}`, 'error'));
+    }
+  } catch (err) {
+    fail(err?.code === 'permission-denied'
+      ? '存不進去：這台可能剛被別人改過，或你沒有權限。請關掉面板，重新打開再試一次。'
+      : errorMessage(err));
+  } finally {
+    setBusy($('mp-save'), false);
+  }
+});
+</script>
+</body>
+</html>

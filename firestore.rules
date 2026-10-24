@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // ============================================================
-// CNC MES 安全規則（功能①登入＋人員、功能②主檔維護）
+// CNC MES 安全規則（功能①登入＋人員、功能②主檔維護、功能③設備看板）
 // 發布方式：Firebase 主控台 → Firestore →「规则」→ 全部取代貼上 →「发布」
 // 重點：沒登入、沒有人員資料、或已停用 → 什麼都不能讀寫
 // 前提：Authentication 已關閉自行註冊，帳號只能在主控台建立
@@ -157,7 +157,120 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // 其他集合（machineStatus、machineEvents…）還沒做到，
+    // ---------- 機台狀態、事件紀錄（功能③） ----------
+
+    function machinePath(machineId) {
+      return /databases/$(database)/documents/machines/$(machineId);
+    }
+
+    function statusPath(machineId) {
+      return /databases/$(database)/documents/machineStatus/$(machineId);
+    }
+
+    function eventPath(eventId) {
+      return /databases/$(database)/documents/machineEvents/$(eventId);
+    }
+
+    // 8 種狀態代碼
+    function statusCodeOk(code) {
+      return code in ['running', 'setup', 'waiting', 'fault', 'qualityHold', 'maintenance', 'idle', 'offline'];
+    }
+
+    // 可以切換這個單位機台狀態的人：管理者（全部單位）、維護員（負責單位）
+    // me＝登入者的人員資料
+    function canOperate(me, deptId) {
+      return me.active == true
+        && (me.role == 'admin' || (me.role == 'maintainer' && deptId in me.deptIds));
+    }
+
+    // 目前狀態的欄位檢查
+    function validStatus(machineId) {
+      let d = request.resource.data;
+      let me = get(myProfilePath()).data;
+      let m = get(machinePath(machineId)).data;
+      let e = getAfter(eventPath(d.lastEventId)).data;
+      return signedIn()
+        && d.keys().hasOnly(['machineId', 'deptId', 'status', 'reasonCode', 'note', 'partNo', 'opNo',
+                             'statusSince', 'lastEventId', 'updatedAt', 'updatedByEmpNo', 'updatedByName'])
+        && d.keys().hasAll(['machineId', 'deptId', 'status', 'reasonCode', 'note', 'partNo', 'opNo',
+                            'statusSince', 'lastEventId', 'updatedAt', 'updatedByEmpNo', 'updatedByName'])
+        && d.machineId == machineId
+        && m.active == true
+        && d.deptId == m.deptId                      // 單位以設備主檔為準
+        && canOperate(me, d.deptId)
+        && statusCodeOk(d.status)
+        && textOk(d.reasonCode, 0, 30)
+        && textOk(d.note, 0, 100)
+        && textOk(d.partNo, 0, 40)
+        && textOk(d.opNo, 0, 20)
+        && d.statusSince is timestamp
+        // 狀態或原因有變 → 從現在重新計時；只改備註、料號、製程 → 沿用原本的開始時間
+        && (d.statusSince == request.time
+            || (resource != null
+                && d.status == resource.data.status
+                && d.reasonCode == resource.data.reasonCode
+                && d.statusSince == resource.data.statusSince))
+        && d.updatedAt == request.time
+        && d.updatedByEmpNo == myEmpNo()
+        && d.updatedByName == me.name
+        // 一定要同時新增一筆對應的事件紀錄
+        && !exists(eventPath(d.lastEventId))         // 寫入前不存在＝這次新建的
+        && e.machineId == machineId
+        && e.toStatus == d.status
+        && e.reasonCode == d.reasonCode
+        && e.createdAt == request.time;
+    }
+
+    match /machineStatus/{machineId} {
+      allow read: if isActive();
+      allow create, update: if validStatus(machineId);
+      allow delete: if false;
+    }
+
+    // 事件紀錄的欄位檢查
+    function validEvent(eventId) {
+      let d = request.resource.data;
+      let me = get(myProfilePath()).data;
+      let m = get(machinePath(d.machineId)).data;
+      let before = statusPath(d.machineId);
+      return signedIn()
+        && d.keys().hasOnly(['eventType', 'machineId', 'deptId', 'fromStatus', 'fromStatusSince', 'toStatus',
+                             'reasonCode', 'note', 'partNo', 'opNo', 'prodDate', 'shiftId',
+                             'createdAt', 'createdByEmpNo', 'createdByName'])
+        && d.keys().hasAll(['eventType', 'machineId', 'deptId', 'fromStatus', 'fromStatusSince', 'toStatus',
+                            'reasonCode', 'note', 'partNo', 'opNo', 'prodDate', 'shiftId',
+                            'createdAt', 'createdByEmpNo', 'createdByName'])
+        && d.eventType == 'statusChange'
+        && m.active == true
+        && d.deptId == m.deptId
+        && canOperate(me, d.deptId)
+        // 「從什麼狀態」要跟資料庫裡原本的一樣（第一次設定時是 null）
+        && ((!exists(before) && d.fromStatus == null && d.fromStatusSince == null)
+            || (exists(before)
+                && d.fromStatus == get(before).data.status
+                && d.fromStatusSince == get(before).data.statusSince))
+        && statusCodeOk(d.toStatus)
+        && textOk(d.reasonCode, 0, 30)
+        && textOk(d.note, 0, 100)
+        && textOk(d.partNo, 0, 40)
+        && textOk(d.opNo, 0, 20)
+        && d.prodDate is string && d.prodDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.shiftId in ['D', 'N']
+        && d.createdAt == request.time
+        && d.createdByEmpNo == myEmpNo()
+        && d.createdByName == me.name
+        // 一定要同時更新這台機的目前狀態，而且指向這筆事件
+        && getAfter(before).data.lastEventId == eventId;
+    }
+
+    match /machineEvents/{eventId} {
+      allow read: if isActive();
+      allow create: if validEvent(eventId);
+      // 事件紀錄只能新增，任何人都不能改、不能刪
+      allow update, delete: if false;
+    }
+
+    // 其他集合（工單、報工…）還沒做到，
     // 這裡沒寫就等於全部鎖住，做到該功能時再開放。
   }
 }

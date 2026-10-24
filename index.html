@@ -93,7 +93,7 @@ const $ = (id) => document.getElementById(id);
 
 // 首頁的模組按鍵：roles＝哪些角色看得到；href 是 null 代表還沒做（顯示「準備中」）
 const MODULES = [
-  { label: '設備看板', desc: '即時機台狀態', href: null, roles: ['admin', 'maintainer', 'viewer'] },
+  { label: '設備看板', desc: '即時機台狀態', href: 'board.html', roles: ['admin', 'maintainer', 'viewer'] },
   { label: '主檔維護', desc: '設備、樓層', href: 'master.html', roles: ['admin'] },
   { label: '人員管理', desc: '帳號、角色、負責單位', href: 'users.html', roles: ['admin'] }
 ];

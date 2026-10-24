@@ -1,0 +1,108 @@
+/* ============================================================
+   board.css — 設備看板專用樣式（功能③）
+   卡片顏色來自單位設定裡的狀態顏色：--c 底色、--fg 字色（程式自動選對比高的）
+   共用的顏色、按鈕、欄位樣式在 style.css
+   ============================================================ */
+
+.page-wide { max-width: 1440px; }
+
+/* 上方黑條右邊的連線狀態 */
+.conn {
+  margin-left: auto; font-size: 14px; padding: 2px 12px;
+  border: 1px solid rgba(255, 255, 255, .55); border-radius: 999px;
+}
+.conn.is-offline { border-style: dashed; }
+
+.board-filters { max-width: 560px; }
+
+/* ---------- 狀態統計 ---------- */
+.summary { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin: 0 0 14px; }
+.sum-total { font-weight: 700; margin-right: 6px; }
+.sum-chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 3px 12px;
+  background: var(--panel); border: 1px solid var(--rule); border-radius: 999px; font-size: 15px;
+}
+.sum-chip b { font-family: var(--font-code); font-size: 19px; }
+.sum-chip.is-zero { color: var(--ink-soft); }
+.sum-dot { width: 12px; height: 12px; border-radius: 50%; background: var(--c); }
+.sum-dot.is-unset { background: var(--panel); border: 2px dashed var(--rule-strong); }
+
+/* ---------- 異常列（故障、品質異常） ---------- */
+.alerts {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px;
+  margin: 0 0 18px; padding: 10px 12px;
+  background: var(--panel); border: 2px solid var(--ink); border-radius: 8px;
+}
+.alerts-title { font-weight: 700; margin-right: 4px; }
+.alert-chip {
+  min-height: 40px; padding: 0 12px; border: 0; border-radius: 6px;
+  background: var(--c); color: var(--fg); font: inherit; font-weight: 700; cursor: pointer;
+}
+
+/* ---------- 樓層區塊 ---------- */
+.floor-sec { margin: 0 0 26px; }
+.floor-title {
+  display: flex; align-items: baseline; gap: 10px;
+  font-size: 20px; margin: 0 0 12px; padding-bottom: 6px; border-bottom: 2px solid var(--ink);
+}
+.floor-count { font-size: 15px; font-weight: 500; color: var(--ink-soft); }
+.empty-board { color: var(--ink-soft); padding: 24px 0; }
+
+/* ---------- 機台卡片 ---------- */
+.m-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 14px; }
+.m-card {
+  display: grid; align-content: start; gap: 2px;
+  min-height: 126px; padding: 12px 14px;
+  border: 0; border-radius: 8px; background: var(--c); color: var(--fg);
+  font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.m-card:active { transform: translateY(2px); }
+.m-id { font-family: var(--font-code); font-size: 30px; font-weight: 700; line-height: 1.05; letter-spacing: .03em; }
+.m-status { font-size: 18px; font-weight: 700; }
+.m-reason, .m-time { font-size: 15px; }
+.m-part { font-size: 14px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.m-model { font-size: 14px; }
+/* 還沒設定過狀態 */
+.m-unset { background: var(--panel); color: var(--ink-soft); border: 2px dashed var(--rule-strong); }
+.m-unset .m-id { color: var(--ink); }
+/* 剛改完、還在同步 */
+.m-pending { opacity: .7; }
+/* 故障、品質異常：外框一明一暗，提醒有人去處理 */
+.m-alert {
+  box-shadow: 0 0 0 4px var(--steel), 0 0 0 8px var(--c);
+  animation: alert-pulse 1.6s ease-in-out infinite;
+}
+@keyframes alert-pulse {
+  50% { box-shadow: 0 0 0 4px var(--steel), 0 0 0 8px transparent; }
+}
+
+/* ---------- 機台面板 ---------- */
+#dlg-machine { width: min(640px, calc(100% - 20px)); max-height: calc(100dvh - 24px); overflow: auto; }
+.mp-title { font-family: var(--font-code); font-size: 34px; letter-spacing: .03em; margin: 0 0 2px; }
+#mp-current { margin: 0 0 16px; }
+.status-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(124px, 1fr)); gap: 8px; }
+.st-btn {
+  min-height: 58px; border: 0; border-radius: 6px;
+  background: var(--c); color: var(--fg);
+  font: inherit; font-size: 18px; font-weight: 700; cursor: pointer;
+}
+.st-btn[aria-pressed="true"] { outline: 4px solid var(--ink); outline-offset: 3px; }
+.reason-grid { display: flex; flex-wrap: wrap; gap: 8px; }
+.rs-btn {
+  min-height: 50px; padding: 0 18px;
+  border: 2px solid var(--ink); border-radius: 6px;
+  background: var(--panel); color: var(--ink);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.rs-btn[aria-pressed="true"] { background: var(--ink); color: #fff; }
+
+@media (max-width: 640px) {
+  .m-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+  .m-id { font-size: 26px; }
+  .conn { margin-left: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .m-alert { animation: none; }
+  .m-card:active { transform: none; }
+}

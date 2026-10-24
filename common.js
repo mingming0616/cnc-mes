@@ -12,7 +12,7 @@ import {
   EmailAuthProvider, reauthenticateWithCredential, updatePassword
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
-  getFirestore, doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp
+  getFirestore, doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp, onSnapshot
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 
 export const app = initializeApp(firebaseConfig);
@@ -20,7 +20,7 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 
 // 各頁面從這裡取用資料庫函式，SDK 版本才不會散在各檔案
-export { doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp };
+export { doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp, onSnapshot };
 
 // 角色代碼 → 畫面顯示名稱
 export const ROLE_LABELS = { admin: '管理者', maintainer: '維護員', viewer: '檢視' };
@@ -186,4 +186,51 @@ export function formatTime(timestamp) {
     year: 'numeric', month: '2-digit', day: '2-digit',
     hour: '2-digit', minute: '2-digit', hour12: false
   }).format(timestamp.toDate());
+}
+
+// ---------- 生產日、班別、持續時間（功能③新增，第二階段報工也會用） ----------
+
+// 算出某個時間點的「生產日」和「班別」（依 settings/shifts，台灣時間）
+//   生產日從 dayStartTime（08:00）起算，08:00 以前算前一天 → 夜班整班算上班那天
+//   班別：找 start～end 包含這個時間的那一班；end 比 start 小代表跨午夜
+//   回傳 { prodDate: 'YYYY-MM-DD', shiftId: 'D' 或 'N'（找不到是 ''） }
+export function prodDateAndShift(date, shiftSetting) {
+  const timeZone = shiftSetting?.timezone || 'Asia/Taipei';
+  const parts = {};
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone, year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(date).forEach((p) => { parts[p.type] = p.value; });
+  const toMinutes = (hhmm) => {
+    const [h, m] = String(hhmm || '00:00').split(':').map(Number);
+    return h * 60 + m;
+  };
+  const now = Number(parts.hour) * 60 + Number(parts.minute);
+
+  // 生產日
+  let day = new Date(Date.UTC(Number(parts.year), Number(parts.month) - 1, Number(parts.day)));
+  if (now < toMinutes(shiftSetting?.dayStartTime || '08:00')) {
+    day = new Date(day.getTime() - 24 * 60 * 60 * 1000);   // 還沒到 08:00，算前一天
+  }
+  const prodDate = day.toISOString().slice(0, 10);
+
+  // 班別
+  const inShift = (s) => {
+    const start = toMinutes(s.start);
+    const end = toMinutes(s.end);
+    return start < end ? (now >= start && now < end) : (now >= start || now < end);
+  };
+  const shift = (shiftSetting?.shifts || []).find(inShift);
+  return { prodDate, shiftId: shift ? shift.id : '' };
+}
+
+// 毫秒 → 「3分」「2小時15分」「1天4小時」
+export function formatDuration(ms) {
+  const totalMinutes = Math.max(0, Math.floor((Number(ms) || 0) / 60000));
+  const days = Math.floor(totalMinutes / 1440);
+  const hours = Math.floor((totalMinutes % 1440) / 60);
+  const minutes = totalMinutes % 60;
+  if (days > 0) return `${days}天${hours}小時`;
+  if (hours > 0) return `${hours}小時${minutes}分`;
+  return `${minutes}分`;
 }
