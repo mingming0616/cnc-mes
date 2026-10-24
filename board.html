@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="style.css?v=2">
 <!-- 看板專用樣式；board.css 改版時把 v 的數字加 1 -->
-<link rel="stylesheet" href="board.css?v=1">
+<link rel="stylesheet" href="board.css?v=2">
 </head>
 <body>
 
@@ -63,10 +63,39 @@
     <p id="mp-readonly" class="muted" hidden></p>
     <p id="mp-error" class="form-error" role="alert"></p>
     <div class="row-actions">
+      <!-- 功能④：所有角色都看得到 -->
+      <button id="mp-history" class="btn mp-history" type="button">異動履歷</button>
       <button id="mp-close" class="btn" type="button">關閉</button>
       <button id="mp-save" class="btn primary" type="submit">確認</button>
     </div>
   </form>
+</dialog>
+
+<!-- ========== 異動履歷：一台機的狀態變更紀錄（功能④，程式在 history.js） ========== -->
+<dialog id="dlg-history" aria-labelledby="h-title">
+  <header class="hist-head">
+    <div class="hist-head-text">
+      <h2 id="h-title" class="hist-title"></h2>
+      <p id="h-sub" class="hist-sub"></p>
+    </div>
+    <button id="h-close" class="btn" type="button" autofocus>關閉</button>
+  </header>
+  <div class="hist-body">
+    <!-- 目前狀態（跟看板一樣即時更新） -->
+    <div id="h-current" class="hist-current"></div>
+    <div class="hist-tools">
+      <label class="field hist-date"><span>跳到日期（生產日）</span><input id="h-date" type="date"></label>
+      <button id="h-go" class="btn" type="button">查詢</button>
+      <button id="h-latest" class="btn" type="button" hidden>回到最新</button>
+    </div>
+    <p id="h-mode" class="muted hist-mode" hidden></p>
+    <!-- 依生產日分組的異動清單 -->
+    <div id="h-list"></div>
+    <div class="hist-foot">
+      <button id="h-more" class="btn block" type="button" hidden>載入更早的紀錄</button>
+      <p id="h-end" class="muted hist-end" hidden>沒有更早的紀錄</p>
+    </div>
+  </div>
 </dialog>
 
 <script type="module">
@@ -76,12 +105,16 @@
 //   即時監聽：machineStatus（有人改了，幾秒內自動更新）
 //   切換狀態：一次寫入「目前狀態 machineStatus」＋「事件紀錄 machineEvents」
 //   誰能切換：管理者（全部單位）、維護員（負責單位）；檢視只能看
+//   異動履歷（功能④）：面板「異動履歷」→ history.js，所有角色都能看
 // ============================================================
+// common.js、history.js 改版時，把下面網址的 v 數字加 1
 import {
   db, collection, getDocs, doc, getDoc, writeBatch, serverTimestamp, onSnapshot,
+  query, where, orderBy, limit, startAfter, Timestamp,
   requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime,
   formatDuration, prodDateAndShift
-} from './common.js?v=2';
+} from './common.js?v=3';
+import { setupHistory, openHistory, refreshHistory } from './history.js?v=1';
 
 const $ = (id) => document.getElementById(id);
 const FILTER_KEY = 'cncmes-board-filters';   // 記住這台裝置上次選的單位、樓層
@@ -147,6 +180,7 @@ if (ctx.error) {
   try {
     await loadMaster();
     setupFilters();
+    setupHistoryModule();
     listenStatus();
     $('state').hidden = true;
     $('panel').hidden = false;
@@ -206,6 +240,7 @@ function listenStatus() {
     setConn(!snap.metadata.fromCache);
     render();
     if (current) renderCurrent(machineOf(current));   // 面板開著時，同步更新「目前」那一行
+    refreshHistory();                                 // 履歷開著時，同步更新（沒開就什麼都不做）
   }, (err) => {
     setConn(false);
     toast(errorMessage(err), 'error');
@@ -411,6 +446,31 @@ $('mp-reasons').addEventListener('click', (event) => {
 
 $('mp-close').addEventListener('click', () => $('dlg-machine').close());
 $('dlg-machine').addEventListener('close', () => { current = null; });
+
+// ---------- 異動履歷（功能④，畫面和讀取在 history.js） ----------
+
+// 面板「異動履歷」：先關面板，再打開這台的履歷
+$('mp-history').addEventListener('click', () => {
+  const machineId = current;            // 關面板時 current 會被清掉，先記下來
+  $('dlg-machine').close();
+  if (machineId) openHistory(machineId);
+});
+
+// 把資料庫函式和看板的資料傳給 history.js（它不自己 import common.js，避免版本號對不上）
+function setupHistoryModule() {
+  // 測試用：網址加 ?pageSize=3，履歷每次只讀 3 筆（平常 30 筆）
+  const asked = parseInt(new URLSearchParams(location.search).get('pageSize'), 10);
+  const pageSize = asked >= 1 && asked <= 100 ? asked : 30;
+  setupHistory({
+    db, collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, Timestamp,
+    escapeHtml, errorMessage, formatDuration, prodDateAndShift,
+    machineOf, floorName, statusDef, reasonLabel, colorStyle,
+    getStatus: (machineId) => statusMap.get(machineId),   // 看板即時監聽到的目前狀態
+    getShiftSetting: () => shiftSetting,
+    isAdmin: () => me?.role === 'admin',
+    pageSize
+  });
+}
 
 // ---------- 切換狀態：目前狀態＋事件紀錄一次寫入 ----------
 $('machine-form').addEventListener('submit', async (event) => {

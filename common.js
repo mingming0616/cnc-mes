@@ -12,7 +12,8 @@ import {
   EmailAuthProvider, reauthenticateWithCredential, updatePassword
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
-  getFirestore, doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp, onSnapshot
+  getFirestore, doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp, onSnapshot,
+  query, where, orderBy, limit, startAfter, Timestamp
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 
 export const app = initializeApp(firebaseConfig);
@@ -20,7 +21,12 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 
 // 各頁面從這裡取用資料庫函式，SDK 版本才不會散在各檔案
-export { doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp, onSnapshot };
+//   功能④（異動履歷）加了查詢用的 query、where、orderBy、limit、startAfter、Timestamp；
+//   只有新增，原本用 common.js 的頁面不用改
+export {
+  doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp, onSnapshot,
+  query, where, orderBy, limit, startAfter, Timestamp
+};
 
 // 角色代碼 → 畫面顯示名稱
 export const ROLE_LABELS = { admin: '管理者', maintainer: '維護員', viewer: '檢視' };

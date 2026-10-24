@@ -106,3 +106,113 @@
   .m-alert { animation: none; }
   .m-card:active { transform: none; }
 }
+
+/* ============================================================
+   以下為功能④（單台機異動履歷）新增的樣式
+   ============================================================ */
+
+/* 機台面板：「異動履歷」靠左，「關閉」「確認」靠右 */
+.mp-history { margin-right: auto; }
+
+/* 履歷畫面：整頁蓋在看板上（手機滿版；平板、電腦置中最寬 760px） */
+#dlg-history {
+  width: min(760px, 100%); max-width: 100%;
+  height: 100vh; height: 100dvh; max-height: 100vh; max-height: 100dvh;
+  margin: 0 auto; border-width: 0 2px; border-radius: 0;
+  background: var(--steel); overflow: auto; overscroll-behavior: contain;
+}
+
+/* 上方黑條：設備編號＋關閉（捲動時固定在上面） */
+.hist-head {
+  position: sticky; top: 0; z-index: 2;
+  display: flex; align-items: center; gap: 12px;
+  padding: max(10px, env(safe-area-inset-top)) 16px 10px;
+  background: var(--ink); color: #fff;
+}
+.hist-head-text { min-width: 0; }
+.hist-title { font-family: var(--font-code); font-size: 30px; line-height: 1.1; letter-spacing: .03em; margin: 0; }
+.hist-sub {
+  margin: 0; font-size: 15px; color: rgba(255, 255, 255, .78);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.hist-head .btn {
+  flex: none; margin-left: auto; min-height: 44px;
+  border-color: rgba(255, 255, 255, .55); background: transparent; color: #fff;
+}
+.hist-head .btn:active { background: rgba(255, 255, 255, .12); }
+
+.hist-body { padding: 16px 16px calc(32px + env(safe-area-inset-bottom)); }
+
+/* 目前狀態 */
+.hist-current {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px;
+  margin: 0 0 16px; padding: 12px 14px;
+  background: var(--panel); border: 2px solid var(--ink); border-radius: 8px;
+}
+.hist-current-label { font-weight: 700; }
+.hist-current-part { color: var(--ink-soft); font-size: 15px; }
+
+/* 跳到日期 */
+.hist-tools { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px; margin: 0 0 10px; }
+.hist-tools .field { flex: 1 1 200px; max-width: 280px; margin: 0; }
+.hist-tools .btn { min-height: 52px; }
+.hist-date input {
+  display: block; width: 100%; height: 52px; padding: 0 14px;
+  border: 2px solid var(--rule-strong); border-radius: var(--radius);
+  background: #fff; color: var(--ink);
+  font: inherit; font-size: 18px; line-height: 48px; text-align: left;   /* 18px：iPhone 才不會自動放大畫面 */
+  -webkit-appearance: none; appearance: none;
+}
+.hist-date input::-webkit-date-and-time-value { text-align: left; }
+.hist-date input:focus { border-color: var(--ink); outline: none; }
+.hist-mode { margin: 0 0 12px; }
+
+/* 依生產日分組 */
+.hist-day { margin: 0 0 18px; }
+.hist-day-title { font-size: 18px; margin: 0 0 8px; padding-bottom: 4px; border-bottom: 2px solid var(--ink); }
+.hist-rows {
+  list-style: none; margin: 0; padding: 0;
+  background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; overflow: hidden;
+}
+
+/* 一筆異動：左邊時間、班別，右邊內容 */
+.hist-row { display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 12px; padding: 12px 14px; }
+.hist-row + .hist-row { border-top: 1px solid var(--rule); }
+.hist-when { display: grid; align-content: start; gap: 2px; }
+.hist-cal { font-size: 14px; font-weight: 600; color: var(--ink-soft); line-height: 1.2; }   /* 夜班過午夜時的日期 */
+.hist-time { font-family: var(--font-code); font-size: 22px; font-weight: 700; line-height: 1.1; }
+.hist-shift { font-size: 14px; color: var(--ink-soft); }
+.hist-what { display: grid; gap: 3px; min-width: 0; }
+.hist-change { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; }
+.hist-chip {
+  display: inline-block; padding: 1px 10px; border-radius: 4px;
+  background: var(--c); color: var(--fg); font-weight: 700;
+}
+.hist-arrow { font-weight: 700; color: var(--ink-soft); }
+.hist-reason { font-weight: 600; }
+.hist-dur { font-weight: 600; }
+.hist-meta, .hist-who { font-size: 15px; color: var(--ink-soft); overflow-wrap: anywhere; }
+.hist-who .tag { margin-left: 8px; }
+
+/* 下方、空白、錯誤 */
+.hist-foot { margin-top: 4px; }
+.hist-end { text-align: center; padding: 6px 0; }
+.hist-empty {
+  padding: 24px 16px; text-align: center; color: var(--ink-soft);
+  background: var(--panel); border: 2px dashed var(--rule-strong); border-radius: 8px;
+}
+.hist-error {
+  margin: 0 0 16px; padding: 14px 16px;
+  background: var(--panel); border: 2px solid var(--error); border-radius: 8px;
+  color: var(--error); font-weight: 600;
+}
+.hist-error .btn { margin-top: 4px; }
+
+@media (max-width: 760px) {
+  #dlg-history { border-width: 0; }
+}
+@media (max-width: 640px) {
+  .hist-row { grid-template-columns: 62px minmax(0, 1fr); gap: 10px; padding: 10px 12px; }
+  .hist-time { font-size: 20px; }
+  .hist-tools .field { max-width: none; }
+}
