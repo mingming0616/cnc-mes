@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // ============================================================
-// CNC MES 安全規則（功能①登入＋人員、功能②主檔維護、功能③設備看板）
+// CNC MES 安全規則（功能①登入＋人員、②主檔維護、③設備看板、④異動履歷、⑤修正紀錄）
 // 發布方式：Firebase 主控台 → Firestore →「规则」→ 全部取代貼上 →「发布」
 // 重點：沒登入、沒有人員資料、或已停用 → 什麼都不能讀寫
 // 前提：Authentication 已關閉自行註冊，帳號只能在主控台建立
@@ -157,7 +157,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // ---------- 機台狀態、事件紀錄（功能③） ----------
+    // ---------- 機台狀態、事件紀錄（功能③、功能⑤修正紀錄） ----------
 
     function machinePath(machineId) {
       return /databases/$(database)/documents/machines/$(machineId);
@@ -183,7 +183,38 @@ service cloud.firestore {
         && (me.role == 'admin' || (me.role == 'maintainer' && deptId in me.deptIds));
     }
 
-    // 目前狀態的欄位檢查
+    // 目前狀態是根據哪一筆「狀態變更」（功能⑤）
+    //   lastEventId 指到狀態變更 → 就是那一筆；指到修正紀錄 → 看修正紀錄記的 baseEventId
+    function baseOf(lastEventId) {
+      let last = get(eventPath(lastEventId)).data;
+      return last.eventType == 'correction' ? last.baseEventId : lastEventId;
+    }
+
+    // 「當班」（功能⑤）：台灣 08:00、20:00 換班＝世界標準時間 00:00、12:00，
+    //   剛好每 12 小時一班：兩個時間落在同一個 12 小時區段＝同一班。
+    //   班別時間如果改了，這裡和 history.js 的 shiftBlock() 都要跟著改。
+    function sameShift(t) {
+      return (t.toMillis() - (t.toMillis() % 43200000))
+        == (request.time.toMillis() - (request.time.toMillis() % 43200000));
+    }
+
+    // 修正紀錄的某個欄位，範圍有沒有包含 base 這筆（功能⑤）
+    function covers(c, key, base) {
+      return key in c && base in c[key].eventIds;
+    }
+
+    // 修正範圍有沒有包含「目前狀態根據的那筆」（有的話，目前狀態也要一起改）
+    function touchesBase(c, base) {
+      return covers(c, 'reasonCode', base) || covers(c, 'partNo', base)
+        || covers(c, 'opNo', base) || covers(c, 'note', base);
+    }
+
+    // 修正後，目前狀態這個欄位應該是什麼值：範圍包含 base 就用修正後的值，不然維持原本的
+    function fieldAfter(c, key, base, old) {
+      return covers(c, key, base) ? c[key].to : old;
+    }
+
+    // 目前狀態的欄位檢查（共同的部分）
     function validStatus(machineId) {
       let d = request.resource.data;
       let me = get(myProfilePath()).data;
@@ -204,21 +235,44 @@ service cloud.firestore {
         && textOk(d.partNo, 0, 40)
         && textOk(d.opNo, 0, 20)
         && d.statusSince is timestamp
+        && d.updatedAt == request.time
+        && d.updatedByEmpNo == myEmpNo()
+        && d.updatedByName == me.name
+        // 一定要同時新增一筆對應的事件紀錄：切換狀態（功能③）或修正紀錄（功能⑤）
+        && !exists(eventPath(d.lastEventId))         // 寫入前不存在＝這次新建的
+        && e.machineId == machineId
+        && e.createdAt == request.time
+        && ((e.eventType == 'statusChange' && statusByChange(d, e))
+            || (e.eventType == 'correction' && statusByCorrection(d, e)));
+    }
+
+    // 切換狀態（功能③）
+    function statusByChange(d, e) {
+      return e.toStatus == d.status
+        && e.reasonCode == d.reasonCode
         // 狀態或原因有變 → 從現在重新計時；只改備註、料號、製程 → 沿用原本的開始時間
         && (d.statusSince == request.time
             || (resource != null
                 && d.status == resource.data.status
                 && d.reasonCode == resource.data.reasonCode
-                && d.statusSince == resource.data.statusSince))
-        && d.updatedAt == request.time
-        && d.updatedByEmpNo == myEmpNo()
-        && d.updatedByName == me.name
-        // 一定要同時新增一筆對應的事件紀錄
-        && !exists(eventPath(d.lastEventId))         // 寫入前不存在＝這次新建的
-        && e.machineId == machineId
-        && e.toStatus == d.status
-        && e.reasonCode == d.reasonCode
-        && e.createdAt == request.time;
+                && d.statusSince == resource.data.statusSince));
+    }
+
+    // 修正紀錄連帶改到目前狀態（功能⑤）：狀態和開始時間不變；
+    //   範圍包含「目前狀態根據的那筆」的欄位換成修正後的值，其他欄位維持原本的
+    function statusByCorrection(d, e) {
+      return resource != null && correctedStatusOk(d, e.changes, e.baseEventId, baseOf(resource.data.lastEventId));
+    }
+
+    function correctedStatusOk(d, c, fixBase, base) {
+      return fixBase == base
+        && touchesBase(c, base)
+        && d.status == resource.data.status
+        && d.statusSince == resource.data.statusSince
+        && d.reasonCode == fieldAfter(c, 'reasonCode', base, resource.data.reasonCode)
+        && d.partNo == fieldAfter(c, 'partNo', base, resource.data.partNo)
+        && d.opNo == fieldAfter(c, 'opNo', base, resource.data.opNo)
+        && d.note == fieldAfter(c, 'note', base, resource.data.note);
     }
 
     match /machineStatus/{machineId} {
@@ -227,7 +281,7 @@ service cloud.firestore {
       allow delete: if false;
     }
 
-    // 事件紀錄的欄位檢查
+    // 事件紀錄：切換狀態（功能③）的欄位檢查
     function validEvent(eventId) {
       let d = request.resource.data;
       let me = get(myProfilePath()).data;
@@ -263,9 +317,89 @@ service cloud.firestore {
         && getAfter(before).data.lastEventId == eventId;
     }
 
+    // 修正紀錄（功能⑤）的欄位檢查
+    //   原本那筆不改；新增一筆 eventType: 'correction'，記下從哪一筆開始、改了什麼、連帶哪些紀錄
+    function validCorrection(eventId) {
+      let d = request.resource.data;
+      return signedIn()
+        && d.keys().hasOnly(['eventType', 'machineId', 'deptId', 'correctsEventId', 'correctsEventAt',
+                             'baseEventId', 'changes', 'eventIds', 'correctionReason',
+                             'prodDate', 'shiftId', 'createdAt', 'createdByEmpNo', 'createdByName'])
+        && d.keys().hasAll(['eventType', 'machineId', 'deptId', 'correctsEventId', 'correctsEventAt',
+                            'baseEventId', 'changes', 'eventIds', 'correctionReason',
+                            'prodDate', 'shiftId', 'createdAt', 'createdByEmpNo', 'createdByName'])
+        && d.eventType == 'correction'
+        && d.machineId is string
+        && d.correctsEventId is string
+        && d.baseEventId is string
+        && changesOk(d.changes, d.correctsEventId, d.eventIds)
+        && textOk(d.correctionReason, 2, 100)
+        && d.prodDate is string && d.prodDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.shiftId in ['D', 'N']
+        && d.createdAt == request.time
+        && d.createdByEmpNo == myEmpNo()
+        && correctionTargetOk(d, eventId);
+    }
+
+    // 修正紀錄要對得上：權限、要修正的那筆、當班、目前狀態（功能⑤）
+    function correctionTargetOk(d, eventId) {
+      let me = get(myProfilePath()).data;
+      let m = get(machinePath(d.machineId)).data;
+      let t = get(eventPath(d.correctsEventId)).data;
+      let base = baseOf(get(statusPath(d.machineId)).data.lastEventId);
+      return d.createdByName == me.name
+        && m.active == true
+        && d.deptId == m.deptId                      // 單位以設備主檔為準
+        && canOperate(me, d.deptId)
+        // 要修正的是同一台機的「狀態變更」紀錄
+        && t.eventType == 'statusChange'
+        && t.machineId == d.machineId
+        && d.correctsEventAt == t.createdAt
+        // 管理者不限時間；維護員只能改當班的紀錄
+        && (me.role == 'admin' || sameShift(t.createdAt))
+        // 修正當下，目前狀態根據的那筆要對（有人剛切換狀態就存不進去）
+        && d.baseEventId == base
+        // 修正範圍包含目前狀態 → 一定要同時更新目前狀態，而且指向這筆修正
+        && (!touchesBase(d.changes, base)
+            || getAfter(statusPath(d.machineId)).data.lastEventId == eventId);
+    }
+
+    // 改了哪些欄位：只能是原因、料號、製程、備註；全部受影響的紀錄最多 50 筆，第一筆是要修正的那筆
+    function changesOk(c, startId, allIds) {
+      return c is map
+        && c.size() >= 1
+        && c.keys().hasOnly(['reasonCode', 'partNo', 'opNo', 'note'])
+        && allIds is list
+        && allIds.size() >= 1
+        && allIds.size() <= 50
+        && allIds[0] == startId
+        && changeOk(c, 'reasonCode', 30, startId, allIds)
+        && changeOk(c, 'partNo', 40, startId, allIds)
+        && changeOk(c, 'opNo', 20, startId, allIds)
+        && changeOk(c, 'note', 100, startId, allIds);
+    }
+
+    // 一個欄位的修正：改前、改後（要不一樣）、連帶哪些紀錄（第一筆是要修正的那筆）
+    function changeOk(c, key, maxLen, startId, allIds) {
+      return !(key in c)
+        || (c[key] is map
+            && c[key].keys().hasOnly(['from', 'to', 'eventIds'])
+            && c[key].keys().hasAll(['from', 'to', 'eventIds'])
+            && textOk(c[key].from, 0, maxLen)
+            && textOk(c[key].to, 0, maxLen)
+            && c[key].from != c[key].to
+            && c[key].eventIds is list
+            && c[key].eventIds.size() >= 1
+            && c[key].eventIds.size() <= 50
+            && c[key].eventIds[0] == startId
+            && allIds.hasAll(c[key].eventIds));
+    }
+
     match /machineEvents/{eventId} {
       allow read: if isActive();
-      allow create: if validEvent(eventId);
+      // 依 eventType 分開檢查：切換狀態（功能③）、修正紀錄（功能⑤）
+      allow create: if (request.resource.data.eventType == 'statusChange' && validEvent(eventId))
+                    || (request.resource.data.eventType == 'correction' && validCorrection(eventId));
       // 事件紀錄只能新增，任何人都不能改、不能刪
       allow update, delete: if false;
     }

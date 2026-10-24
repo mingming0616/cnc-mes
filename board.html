@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="style.css?v=2">
 <!-- 看板專用樣式；board.css 改版時把 v 的數字加 1 -->
-<link rel="stylesheet" href="board.css?v=2">
+<link rel="stylesheet" href="board.css?v=3">
 </head>
 <body>
 
@@ -98,6 +98,46 @@
   </div>
 </dialog>
 
+<!-- ========== 修正紀錄：改錯的原因、料號、製程、備註（功能⑤，程式在 history.js） ==========
+     原本那筆不動，另外新增一筆修正紀錄；狀態和時間不能改 -->
+<dialog id="dlg-fix" aria-labelledby="fx-title">
+  <form id="fix-form" class="dialog-body" novalidate>
+    <h2 id="fx-title" class="fx-title">修正紀錄</h2>
+    <!-- 要修正的是哪一筆：時間、班別、狀態、誰記的 -->
+    <div id="fx-target" class="fx-target"></div>
+
+    <!-- 修改畫面 -->
+    <div id="fx-edit">
+      <p class="muted">狀態和時間不能改；狀態按錯，請回看板再切一次正確的。</p>
+      <fieldset id="fx-reason-box" class="field" hidden>
+        <legend id="fx-reason-legend">原因</legend>
+        <div id="fx-reasons" class="reason-grid"></div>
+      </fieldset>
+      <div class="form-grid">
+        <label class="field"><span>料號</span><input id="fx-part" type="text" maxlength="40" spellcheck="false" autocomplete="off"></label>
+        <label class="field"><span>製程</span><input id="fx-op" type="text" maxlength="20" spellcheck="false" autocomplete="off" placeholder="例：OP10"></label>
+      </div>
+      <label class="field"><span>備註</span><input id="fx-note" type="text" maxlength="100" autocomplete="off"></label>
+      <fieldset class="field">
+        <legend>修正理由</legend>
+        <div id="fx-why" class="reason-grid"></div>
+      </fieldset>
+      <label class="field"><span id="fx-detail-label">補充說明（可不填）</span><input id="fx-detail" type="text" maxlength="60" autocomplete="off"></label>
+    </div>
+
+    <!-- 確認畫面：改前→改後、連帶幾筆、看板會不會跟著變 -->
+    <div id="fx-confirm" class="fx-confirm" hidden></div>
+
+    <!-- 缺索引時的說明（管理者有建立連結） -->
+    <div id="fx-index" class="hist-error fx-index" hidden></div>
+    <p id="fx-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="fx-cancel" class="btn" type="button">取消</button>
+      <button id="fx-save" class="btn primary" type="submit">存檔</button>
+    </div>
+  </form>
+</dialog>
+
 <script type="module">
 // ============================================================
 // board.html：設備看板（所有角色都能看）
@@ -106,15 +146,16 @@
 //   切換狀態：一次寫入「目前狀態 machineStatus」＋「事件紀錄 machineEvents」
 //   誰能切換：管理者（全部單位）、維護員（負責單位）；檢視只能看
 //   異動履歷（功能④）：面板「異動履歷」→ history.js，所有角色都能看
+//   修正紀錄（功能⑤）：履歷上那筆按「修正」→ history.js；管理者全部、維護員負責單位當班內
 // ============================================================
 // common.js、history.js 改版時，把下面網址的 v 數字加 1
 import {
   db, collection, getDocs, doc, getDoc, writeBatch, serverTimestamp, onSnapshot,
-  query, where, orderBy, limit, startAfter, Timestamp,
+  query, where, orderBy, limit, startAfter, Timestamp, getDocFromServer, getDocsFromServer,
   requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime,
   formatDuration, prodDateAndShift
-} from './common.js?v=3';
-import { setupHistory, openHistory, refreshHistory } from './history.js?v=1';
+} from './common.js?v=4';
+import { setupHistory, openHistory, refreshHistory } from './history.js?v=2';
 
 const $ = (id) => document.getElementById(id);
 const FILTER_KEY = 'cncmes-board-filters';   // 記住這台裝置上次選的單位、樓層
@@ -468,7 +509,12 @@ function setupHistoryModule() {
     getStatus: (machineId) => statusMap.get(machineId),   // 看板即時監聽到的目前狀態
     getShiftSetting: () => shiftSetting,
     isAdmin: () => me?.role === 'admin',
-    pageSize
+    pageSize,
+    // 功能⑤（修正紀錄）多傳的：寫入、跟資料庫確認最新內容、原因清單、登入者、權限
+    doc, writeBatch, serverTimestamp, getDocFromServer, getDocsFromServer,
+    toast, activeReasons, myEmpNo,
+    getMe: () => me,
+    canEdit                                               // 管理者全部單位、維護員負責單位
   });
 }
 

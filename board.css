@@ -216,3 +216,56 @@
   .hist-time { font-size: 20px; }
   .hist-tools .field { max-width: none; }
 }
+
+/* ============================================================
+   以下為功能⑤（修正紀錄）新增的樣式
+   顏色照舊只留給機台狀態，修正相關的都用墨色、鋼灰
+   ============================================================ */
+
+/* 履歷每筆最下面：左邊誰記的，右邊「修正」 */
+.hist-who { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; }
+.hist-fix { min-height: 44px; margin-left: auto; padding: 0 18px; font-size: 16px; }
+
+/* 已修正：點開看原本內容、誰、何時、理由 */
+.hist-fixed { font-size: 15px; }
+.hist-fixed summary {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px;
+  min-height: 44px; color: var(--ink-soft); cursor: pointer; list-style: none;
+  -webkit-tap-highlight-color: transparent;
+}
+.hist-fixed summary::-webkit-details-marker { display: none; }
+.hist-fixed-tag { font-weight: 700; color: var(--ink); background: var(--sunk); }
+.hist-fixed-open, .hist-fixed-close { text-decoration: underline; text-underline-offset: 3px; }
+.hist-fixed[open] .hist-fixed-open, .hist-fixed:not([open]) .hist-fixed-close { display: none; }
+.hist-fix-item {
+  display: grid; gap: 2px; margin: 0 0 8px; padding: 8px 12px;
+  background: var(--sunk); border-left: 4px solid var(--ink); border-radius: 4px;
+  overflow-wrap: anywhere;
+}
+.hist-fix-who { font-weight: 700; }
+.hist-fix-who .tag { margin-left: 8px; }
+.hist-fix-scope { color: var(--ink-soft); }
+
+/* 修正畫面（跟機台面板一樣大小，蓋在履歷上面） */
+#dlg-fix { width: min(640px, calc(100% - 20px)); max-height: calc(100dvh - 24px); overflow: auto; }
+.fx-title { font-size: 24px; margin: 0 0 12px; }
+.fx-target {
+  display: grid; gap: 4px; margin: 0 0 14px; padding: 10px 14px;
+  background: var(--sunk); border: 2px solid var(--ink); border-radius: 8px;
+}
+.fx-when { display: flex; flex-wrap: wrap; align-items: baseline; gap: 2px 12px; }
+.fx-time { font-family: var(--font-code); font-size: 22px; font-weight: 700; }
+.fx-target .muted { margin: 0; }
+
+/* 確認畫面：改前 → 改後，一欄一行 */
+.fx-lead { font-weight: 600; }
+.fx-changes {
+  list-style: none; margin: 0 0 12px; padding: 0;
+  border: 2px solid var(--ink); border-radius: 8px; overflow: hidden;
+}
+.fx-changes li { display: grid; gap: 2px; padding: 10px 14px; overflow-wrap: anywhere; }
+.fx-changes li + li { border-top: 1px solid var(--rule); }
+.fx-field { font-size: 15px; color: var(--ink-soft); }
+.fx-scope { font-size: 15px; color: var(--ink-soft); }
+.fx-board { font-weight: 700; padding: 8px 12px; border: 2px dashed var(--ink); border-radius: 6px; }
+.fx-index { margin: 12px 0 0; }

@@ -13,7 +13,7 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
   getFirestore, doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp, onSnapshot,
-  query, where, orderBy, limit, startAfter, Timestamp
+  query, where, orderBy, limit, startAfter, Timestamp, getDocFromServer, getDocsFromServer
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 
 export const app = initializeApp(firebaseConfig);
@@ -22,10 +22,12 @@ export const db = getFirestore(app);
 
 // 各頁面從這裡取用資料庫函式，SDK 版本才不會散在各檔案
 //   功能④（異動履歷）加了查詢用的 query、where、orderBy、limit、startAfter、Timestamp；
-//   只有新增，原本用 common.js 的頁面不用改
+//   功能⑤（修正紀錄）加了 getDocFromServer、getDocsFromServer：一定跟資料庫要最新的，
+//     連不上就直接失敗（不拿這台裝置上的暫存），修正前確認範圍用。
+//   都只有新增，原本用 common.js 的頁面不用改
 export {
   doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp, onSnapshot,
-  query, where, orderBy, limit, startAfter, Timestamp
+  query, where, orderBy, limit, startAfter, Timestamp, getDocFromServer, getDocsFromServer
 };
 
 // 角色代碼 → 畫面顯示名稱
