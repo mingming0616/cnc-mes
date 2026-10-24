@@ -1,0 +1,527 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>主檔維護｜CNC MES</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<!-- ?v=2：style.css 有改版時把數字加 1，瀏覽器才會抓新的樣式 -->
+<link rel="stylesheet" href="style.css?v=2">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="btn ghost" href="index.html">回首頁</a>
+  <span class="topbar-title">主檔維護</span>
+</header>
+
+<main class="page">
+  <!-- 載入中、沒有權限、讀取錯誤時顯示這裡 -->
+  <div id="state" class="state">載入中…</div>
+
+  <section id="panel" hidden>
+    <!-- 分頁切換 -->
+    <div class="tabs" role="tablist" aria-label="主檔種類">
+      <button id="tab-machines" type="button" role="tab" aria-selected="true" aria-controls="pane-machines">設備</button>
+      <button id="tab-floors" type="button" role="tab" aria-selected="false" aria-controls="pane-floors">樓層</button>
+    </div>
+
+    <!-- ==================== 設備分頁 ==================== -->
+    <div id="pane-machines" role="tabpanel" aria-labelledby="tab-machines">
+      <!-- 資料庫裡還沒有任何設備時才出現 -->
+      <section id="seed-card" class="setup" hidden>
+        <h2>建立測試資料</h2>
+        <p>會建立「測試樓層」（TEST-1F）和 10 台測試機台 T01～T10（銑床課、Brother S500Xd2），方便測試主檔和之後的看板。</p>
+        <button id="btn-seed" class="btn primary" type="button">建立測試資料</button>
+      </section>
+
+      <div class="toolbar">
+        <button id="btn-add-machine" class="btn primary" type="button">新增設備</button>
+        <label class="check">
+          <input id="m-show-off" type="checkbox">
+          <span>顯示不使用的</span>
+        </label>
+      </div>
+
+      <div class="filters">
+        <label class="field"><span>單位</span><select id="m-filter-dept"></select></label>
+        <label class="field"><span>樓層</span><select id="m-filter-floor"></select></label>
+        <label class="field"><span>搜尋</span><input id="m-search" type="search" placeholder="設備編號、型號" spellcheck="false"></label>
+      </div>
+
+      <!-- 新增／編輯設備 -->
+      <form id="machine-form" class="sheet" hidden novalidate>
+        <h2 id="mf-title">新增設備</h2>
+        <div class="form-grid">
+          <label class="field"><span>設備編號</span><input id="mf-id" type="text" autocapitalize="characters" spellcheck="false" maxlength="12"></label>
+          <label class="field"><span>單位</span><select id="mf-dept"></select></label>
+          <label class="field"><span>廠區樓層</span><select id="mf-floor"></select></label>
+          <label class="field"><span>設備類別</span><input id="mf-category" type="text" list="dl-category" maxlength="30"></label>
+          <label class="field"><span>廠牌</span><input id="mf-brand" type="text" list="dl-brand" maxlength="30" spellcheck="false"></label>
+          <label class="field"><span>型號</span><input id="mf-model" type="text" list="dl-model" maxlength="30" spellcheck="false"></label>
+          <label class="field"><span>排列順序（數字小的排前面）</span><input id="mf-sort" type="number" inputmode="numeric" min="0" max="9999" step="1"></label>
+        </div>
+        <label class="field"><span>備註</span><input id="mf-note" type="text" maxlength="100"></label>
+        <label class="check">
+          <input id="mf-active" type="checkbox">
+          <span>使用中</span>
+        </label>
+        <p id="mf-notes" class="muted notes"></p>
+        <p id="mf-error" class="form-error" role="alert"></p>
+        <div class="row-actions">
+          <button id="mf-cancel" class="btn" type="button">取消</button>
+          <button id="mf-save" class="btn primary" type="submit">儲存</button>
+        </div>
+      </form>
+
+      <!-- 打字時的建議清單（從已經存在的設備整理出來） -->
+      <datalist id="dl-category"></datalist>
+      <datalist id="dl-brand"></datalist>
+      <datalist id="dl-model"></datalist>
+
+      <p id="m-count" class="muted"></p>
+      <ul id="machine-list" class="ledger ledger-machines" aria-label="設備清單"></ul>
+    </div>
+
+    <!-- ==================== 樓層分頁 ==================== -->
+    <div id="pane-floors" role="tabpanel" aria-labelledby="tab-floors" hidden>
+      <div class="toolbar">
+        <button id="btn-add-floor" class="btn primary" type="button">新增樓層</button>
+        <label class="check">
+          <input id="fl-show-off" type="checkbox">
+          <span>顯示不使用的</span>
+        </label>
+      </div>
+
+      <!-- 新增／編輯樓層 -->
+      <form id="floor-form" class="sheet" hidden novalidate>
+        <h2 id="ff-title">新增樓層</h2>
+        <div class="form-grid">
+          <label class="field"><span>代號</span><input id="ff-id" type="text" autocapitalize="characters" spellcheck="false" maxlength="12" placeholder="例：F2-2F"></label>
+          <label class="field"><span>名稱</span><input id="ff-name" type="text" maxlength="20" placeholder="例：2廠 2F"></label>
+          <label class="field"><span>排序（數字小的排前面）</span><input id="ff-sort" type="number" inputmode="numeric" min="0" max="9999" step="1"></label>
+        </div>
+        <label class="check">
+          <input id="ff-active" type="checkbox">
+          <span>使用中</span>
+        </label>
+        <p id="ff-notes" class="muted notes"></p>
+        <p id="ff-error" class="form-error" role="alert"></p>
+        <div class="row-actions">
+          <button id="ff-cancel" class="btn" type="button">取消</button>
+          <button id="ff-save" class="btn primary" type="submit">儲存</button>
+        </div>
+      </form>
+
+      <ul id="floor-list" class="ledger ledger-floors" aria-label="樓層清單"></ul>
+    </div>
+  </section>
+</main>
+
+<script type="module">
+// ============================================================
+// master.html：主檔維護（只有管理者能用）
+//   設備 machines/{設備編號}、樓層 floors/{樓層代號}
+//   規則：不能刪除，不用了就關掉「使用中」；編號建立後不能改
+//   用詞：主檔關掉「使用中」→ 顯示「不使用」
+//        （跟機台狀態的「停用」不同，狀態的停用是借出、安裝驗收等暫時不能生產）
+// ============================================================
+import {
+  db, collection, getDocs, doc, getDoc, setDoc, serverTimestamp,
+  requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime
+} from './common.js';
+
+const $ = (id) => document.getElementById(id);
+
+// 設備編號、樓層代號：英文大寫、數字和「-」，2～12 碼，第一個字不能是「-」
+const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,11}$/;
+const TEST_FLOOR_ID = 'TEST-1F';
+
+let machines = [];          // 全部設備
+let floors = [];            // 全部樓層（依排序）
+let depts = [];             // 全部單位（依排序）
+let editingMachine = null;  // 正在編輯的設備編號；null＝新增
+let editingFloor = null;    // 正在編輯的樓層代號；null＝新增
+let lastNew = null;         // 上一台新增的設備：連續新增同型機台時，先帶入類別、廠牌、型號
+
+// ---------- 小工具 ----------
+const normalizeCode = (value) => String(value ?? '').trim().toUpperCase();
+// 自然排序：T2 排在 T10 前面
+const naturalCompare = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'en', { numeric: true });
+const bySortOrder = (idKey) => (a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || naturalCompare(a[idKey], b[idKey]);
+// 寫入主檔時一定要蓋上：伺服器時間＋本人工號（安全規則會檢查）
+const stamp = () => ({ updatedAt: serverTimestamp(), updatedByEmpNo: myEmpNo() });
+const floorName = (id) => floors.find((f) => f.floorId === id)?.name || id || '—';
+const activeMachinesOnFloor = (floorId) => machines.filter((m) => m.floorId === floorId && m.active === true).length;
+
+// 設定下拉選單的值；選單裡沒有這個值就選第一個
+function setSelectValue(select, value) {
+  const exists = [...select.options].some((o) => o.value === value);
+  select.value = exists ? value : (select.options[0]?.value ?? '');
+}
+
+function fillOptions(select, items, valueOf, labelOf, selected) {
+  select.innerHTML = items
+    .map((item) => `<option value="${escapeHtml(valueOf(item))}">${escapeHtml(labelOf(item))}</option>`)
+    .join('');
+  setSelectValue(select, selected);
+}
+
+function lastUpdatedText(item) {
+  return `最後更新：${formatTime(item.updatedAt)}${item.updatedByEmpNo ? `（${item.updatedByEmpNo}）` : ''}`;
+}
+
+// ---------- 權限檢查：沒登入會被帶回登入頁 ----------
+const ctx = await requireUser({ adminOnly: true });
+if (ctx.error) {
+  $('state').textContent = errorMessage(ctx.error);
+} else if (ctx.forbidden) {
+  $('state').innerHTML = '<p>沒有權限：主檔維護只有管理者能使用。</p><a class="btn" href="index.html">回首頁</a>';
+} else {
+  try {
+    await loadAll();
+    $('state').hidden = true;
+    $('panel').hidden = false;
+  } catch (err) {
+    $('state').textContent = errorMessage(err);
+  }
+}
+
+// 讀取全部設備、樓層、單位（設備 200 台以內，一次讀完沒問題）
+async function loadAll() {
+  const [machineSnap, floorSnap, deptSnap] = await Promise.all([
+    getDocs(collection(db, 'machines')),
+    getDocs(collection(db, 'floors')),
+    getDocs(collection(db, 'departments'))
+  ]);
+  floors = floorSnap.docs.map((d) => ({ ...d.data(), floorId: d.id })).sort(bySortOrder('floorId'));
+  depts = deptSnap.docs.map((d) => ({ ...d.data(), id: d.id })).sort(bySortOrder('id'));
+  // 設備依「樓層排序 → 排列順序 → 設備編號」排
+  const floorRank = (id) => {
+    const index = floors.findIndex((f) => f.floorId === id);
+    return index < 0 ? 999 : index;
+  };
+  machines = machineSnap.docs
+    .map((d) => ({ ...d.data(), machineId: d.id }))
+    .sort((a, b) => floorRank(a.floorId) - floorRank(b.floorId)
+      || (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
+      || naturalCompare(a.machineId, b.machineId));
+  renderFilters();
+  renderDatalists();
+  renderMachines();
+  renderFloors();
+  $('seed-card').hidden = machines.length > 0;
+}
+
+// ---------- 分頁切換 ----------
+function showTab(name) {
+  const onMachines = name === 'machines';
+  $('tab-machines').setAttribute('aria-selected', String(onMachines));
+  $('tab-floors').setAttribute('aria-selected', String(!onMachines));
+  $('pane-machines').hidden = !onMachines;
+  $('pane-floors').hidden = onMachines;
+}
+$('tab-machines').addEventListener('click', () => showTab('machines'));
+$('tab-floors').addEventListener('click', () => showTab('floors'));
+
+// ==================== 設備 ====================
+
+function renderFilters() {
+  const keepDept = $('m-filter-dept').value;
+  const keepFloor = $('m-filter-floor').value;
+  fillOptions($('m-filter-dept'), [{ id: '', name: '全部單位' }, ...depts], (d) => d.id, (d) => d.name || d.id, keepDept);
+  fillOptions($('m-filter-floor'), [{ floorId: '', name: '全部樓層', active: true }, ...floors],
+    (f) => f.floorId, (f) => (f.active === true ? f.name : `${f.name}（不使用）`), keepFloor);
+}
+
+// 類別、廠牌、型號的打字建議：整理已經用過的寫法
+function renderDatalists() {
+  for (const [field, listId] of [['category', 'dl-category'], ['brand', 'dl-brand'], ['model', 'dl-model']]) {
+    const values = [...new Set(machines.map((m) => m[field]).filter(Boolean))].sort(naturalCompare);
+    $(listId).innerHTML = values.map((v) => `<option value="${escapeHtml(v)}"></option>`).join('');
+  }
+}
+
+function renderMachines() {
+  const dept = $('m-filter-dept').value;
+  const floor = $('m-filter-floor').value;
+  const keyword = $('m-search').value.trim().toUpperCase();
+  const showOff = $('m-show-off').checked;
+  const rows = machines.filter((m) =>
+    (showOff || m.active === true)
+    && (!dept || m.deptId === dept)
+    && (!floor || m.floorId === floor)
+    && (!keyword || [m.machineId, m.model, m.brand, m.category]
+      .some((v) => String(v ?? '').toUpperCase().includes(keyword))));
+
+  const inUse = machines.filter((m) => m.active === true).length;
+  $('m-count').textContent = `使用中 ${inUse} 台，全部 ${machines.length} 台；目前列出 ${rows.length} 台`;
+
+  const head = '<li class="ledger-head" aria-hidden="true"><span>設備編號</span><span>類別</span><span>廠牌型號</span><span>樓層</span><span>狀態</span></li>';
+  if (rows.length === 0) {
+    const text = machines.length ? '沒有符合條件的設備。' : '還沒有設備，按「新增設備」或「建立測試資料」開始。';
+    $('machine-list').innerHTML = `${head}<li class="empty">${text}</li>`;
+    return;
+  }
+  $('machine-list').innerHTML = head + rows.map((m) => `
+    <li>
+      <button type="button" class="ledger-row${m.active === true ? '' : ' is-off'}" data-id="${escapeHtml(m.machineId)}">
+        <span class="col-id">${escapeHtml(m.machineId)}</span>
+        <span class="col-cat">${escapeHtml(m.category)}</span>
+        <span class="col-model">${escapeHtml(`${m.brand ?? ''} ${m.model ?? ''}`.trim())}</span>
+        <span class="col-floor">${escapeHtml(floorName(m.floorId))}</span>
+        <span class="col-state"><span class="tag${m.active === true ? '' : ' tag-off'}">${m.active === true ? '使用中' : '不使用'}</span></span>
+      </button>
+    </li>`).join('');
+}
+
+for (const id of ['m-filter-dept', 'm-filter-floor', 'm-show-off']) {
+  $(id).addEventListener('change', renderMachines);
+}
+$('m-search').addEventListener('input', renderMachines);
+$('machine-list').addEventListener('click', (event) => {
+  const row = event.target.closest('.ledger-row');
+  if (row) openMachineForm(row.dataset.id);
+});
+$('btn-add-machine').addEventListener('click', () => openMachineForm(null));
+$('mf-cancel').addEventListener('click', closeMachineForm);
+
+// 新增時建議的排列順序：這層目前最大的號碼＋1
+function nextSortOrder(floorId) {
+  const numbers = machines.filter((m) => m.floorId === floorId).map((m) => m.sortOrder ?? 0);
+  return numbers.length ? Math.min(9999, Math.max(...numbers) + 1) : 1;
+}
+
+function openMachineForm(machineId) {
+  const machine = machineId ? machines.find((m) => m.machineId === machineId) : null;
+  editingMachine = machine ? machine.machineId : null;
+
+  // 單位、樓層選單只列使用中的；編輯時原本那個若已不使用，也照樣列出來
+  const deptItems = depts.filter((d) => d.active !== false || d.id === machine?.deptId);
+  const floorItems = floors.filter((f) => f.active === true || f.floorId === machine?.floorId);
+  const deptValue = machine?.deptId || $('m-filter-dept').value || deptItems[0]?.id || '';
+  const floorValue = machine?.floorId || $('m-filter-floor').value || floorItems[0]?.floorId || '';
+  fillOptions($('mf-dept'), deptItems, (d) => d.id, (d) => d.name || d.id, deptValue);
+  fillOptions($('mf-floor'), floorItems, (f) => f.floorId,
+    (f) => (f.active === true ? `${f.name}（${f.floorId}）` : `${f.name}（${f.floorId}，不使用）`), floorValue);
+
+  const prefill = machine || lastNew || {};
+  $('mf-title').textContent = machine ? `編輯 ${machine.machineId}` : '新增設備';
+  $('mf-id').value = machine ? machine.machineId : '';
+  $('mf-id').disabled = !!machine;                       // 設備編號建立後不能改
+  $('mf-category').value = prefill.category ?? '';
+  $('mf-brand').value = prefill.brand ?? '';
+  $('mf-model').value = prefill.model ?? '';
+  $('mf-sort').value = machine ? (machine.sortOrder ?? 0) : nextSortOrder($('mf-floor').value);
+  $('mf-note').value = machine ? (machine.note ?? '') : '';
+  $('mf-active').checked = machine ? machine.active === true : true;
+
+  const notes = [];
+  if (!deptItems.length) notes.push('還沒有單位資料，請先回首頁按「建立預設資料」。');
+  if (!floorItems.length) notes.push('還沒有使用中的樓層，請先到「樓層」分頁新增，或按「建立測試資料」。');
+  if (!machine && lastNew) notes.push('類別、廠牌、型號已帶入上一台新增的設備，不同的話直接改。');
+  if (machine) notes.push('設備編號建立後不能修改；打錯請關掉「使用中」，再用正確編號重建。');
+  if (machine) notes.push(lastUpdatedText(machine));
+  $('mf-notes').textContent = notes.join('\n');
+  $('mf-error').textContent = '';
+  $('machine-form').hidden = false;
+  $('machine-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  (machine ? $('mf-category') : $('mf-id')).focus({ preventScroll: true });
+}
+
+function closeMachineForm() {
+  $('machine-form').hidden = true;
+  editingMachine = null;
+}
+
+$('machine-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const isNew = editingMachine === null;
+  const machineId = isNew ? normalizeCode($('mf-id').value) : editingMachine;
+  const data = {
+    machineId,
+    deptId: $('mf-dept').value,
+    floorId: $('mf-floor').value,
+    category: $('mf-category').value.trim(),
+    brand: $('mf-brand').value.trim(),
+    model: $('mf-model').value.trim(),
+    sortOrder: Number.parseInt($('mf-sort').value, 10),
+    active: $('mf-active').checked,
+    note: $('mf-note').value.trim()
+  };
+  const fail = (message) => { $('mf-error').textContent = message; };
+  const duplicateMessage = (existing) => (existing?.active === true
+    ? `這個設備編號已經有了：${machineId}`
+    : `這個設備編號已經有了：${machineId}（是不使用的設備，勾「顯示不使用的」就找得到）`);
+
+  // 先在畫面上檢查，安全規則會再檢查一次
+  if (!CODE_PATTERN.test(machineId)) return fail('設備編號只能用英文大寫、數字和「-」，2～12 碼');
+  if (isNew) {
+    const existing = machines.find((m) => m.machineId === machineId);
+    if (existing) return fail(duplicateMessage(existing));
+  }
+  if (!data.deptId) return fail('請選擇單位');
+  if (!data.floorId) return fail('請選擇廠區樓層');
+  if (!data.category) return fail('請輸入設備類別');
+  if (!data.brand) return fail('請輸入廠牌');
+  if (!data.model) return fail('請輸入型號');
+  if (!Number.isInteger(data.sortOrder) || data.sortOrder < 0 || data.sortOrder > 9999) return fail('排列順序請填 0～9999 的整數');
+  fail('');
+
+  setBusy($('mf-save'), true, '儲存中…');
+  try {
+    const ref = doc(db, 'machines', machineId);
+    if (isNew) {
+      const snap = await getDoc(ref);   // 再確認一次，避免兩個人同時新增同一台
+      if (snap.exists()) { fail(duplicateMessage(snap.data())); return; }
+    }
+    await setDoc(ref, { ...data, ...stamp() });
+    if (isNew) lastNew = { category: data.category, brand: data.brand, model: data.model };
+    closeMachineForm();
+    await loadAll();
+    toast(isNew ? `已新增 ${machineId}` : `已儲存 ${machineId}`);
+  } catch (err) {
+    fail(errorMessage(err));
+  } finally {
+    setBusy($('mf-save'), false);
+  }
+});
+
+// ---------- 建立測試資料：測試樓層＋T01～T10 ----------
+$('btn-seed').addEventListener('click', async () => {
+  if (!depts.some((d) => d.id === 'milling')) {
+    toast('找不到銑床課，請先回首頁按「建立預設資料」', 'error');
+    return;
+  }
+  if (!confirm('要建立測試樓層 TEST-1F 和 T01～T10 嗎？已經有的不會被覆蓋。')) return;
+  setBusy($('btn-seed'), true, '建立中…');
+  try {
+    // 1. 測試樓層
+    const floorRef = doc(db, 'floors', TEST_FLOOR_ID);
+    if (!(await getDoc(floorRef)).exists()) {
+      await setDoc(floorRef, { floorId: TEST_FLOOR_ID, name: '測試樓層', sortOrder: 1, active: true, ...stamp() });
+    }
+    // 2. 測試機台：一台一台寫，每台都會經過安全規則檢查
+    for (let i = 1; i <= 10; i += 1) {
+      const machineId = `T${String(i).padStart(2, '0')}`;
+      const ref = doc(db, 'machines', machineId);
+      if ((await getDoc(ref)).exists()) continue;
+      await setDoc(ref, {
+        machineId, deptId: 'milling', floorId: TEST_FLOOR_ID,
+        category: '立式加工中心機', brand: 'Brother', model: 'S500Xd2',
+        sortOrder: i, active: true, note: '測試資料', ...stamp()
+      });
+    }
+    await loadAll();
+    toast('測試資料已建立');
+  } catch (err) {
+    toast(errorMessage(err), 'error');
+  } finally {
+    setBusy($('btn-seed'), false);
+  }
+});
+
+// ==================== 樓層 ====================
+
+function renderFloors() {
+  const showOff = $('fl-show-off').checked;
+  const rows = floors.filter((f) => showOff || f.active === true);
+  const head = '<li class="ledger-head" aria-hidden="true"><span>代號</span><span>名稱</span><span>排序</span><span>設備數</span><span>狀態</span></li>';
+  if (rows.length === 0) {
+    const text = floors.length ? '沒有符合條件的樓層。' : '還沒有樓層，按「新增樓層」開始。';
+    $('floor-list').innerHTML = `${head}<li class="empty">${text}</li>`;
+    return;
+  }
+  $('floor-list').innerHTML = head + rows.map((f) => `
+    <li>
+      <button type="button" class="ledger-row${f.active === true ? '' : ' is-off'}" data-id="${escapeHtml(f.floorId)}">
+        <span class="col-id">${escapeHtml(f.floorId)}</span>
+        <span class="col-name">${escapeHtml(f.name)}</span>
+        <span class="col-sort">${escapeHtml(f.sortOrder ?? '—')}</span>
+        <span class="col-count">${activeMachinesOnFloor(f.floorId)} 台</span>
+        <span class="col-state"><span class="tag${f.active === true ? '' : ' tag-off'}">${f.active === true ? '使用中' : '不使用'}</span></span>
+      </button>
+    </li>`).join('');
+}
+
+$('fl-show-off').addEventListener('change', renderFloors);
+$('floor-list').addEventListener('click', (event) => {
+  const row = event.target.closest('.ledger-row');
+  if (row) openFloorForm(row.dataset.id);
+});
+$('btn-add-floor').addEventListener('click', () => openFloorForm(null));
+$('ff-cancel').addEventListener('click', closeFloorForm);
+
+function openFloorForm(floorId) {
+  const floor = floorId ? floors.find((f) => f.floorId === floorId) : null;
+  editingFloor = floor ? floor.floorId : null;
+  const nextSort = floors.length ? Math.min(9999, Math.max(...floors.map((f) => f.sortOrder ?? 0)) + 1) : 1;
+
+  $('ff-title').textContent = floor ? `編輯 ${floor.floorId}` : '新增樓層';
+  $('ff-id').value = floor ? floor.floorId : '';
+  $('ff-id').disabled = !!floor;                         // 樓層代號建立後不能改
+  $('ff-name').value = floor ? floor.name : '';
+  $('ff-sort').value = floor ? (floor.sortOrder ?? 0) : nextSort;
+  $('ff-active').checked = floor ? floor.active === true : true;
+
+  const notes = [];
+  if (floor) notes.push(`這層目前有 ${activeMachinesOnFloor(floor.floorId)} 台使用中的設備。`);
+  if (floor) notes.push('樓層代號建立後不能修改；打錯請關掉「使用中」，再用正確代號重建。');
+  if (floor) notes.push(lastUpdatedText(floor));
+  $('ff-notes').textContent = notes.join('\n');
+  $('ff-error').textContent = '';
+  $('floor-form').hidden = false;
+  $('floor-form').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  (floor ? $('ff-name') : $('ff-id')).focus({ preventScroll: true });
+}
+
+function closeFloorForm() {
+  $('floor-form').hidden = true;
+  editingFloor = null;
+}
+
+$('floor-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const isNew = editingFloor === null;
+  const floorId = isNew ? normalizeCode($('ff-id').value) : editingFloor;
+  const data = {
+    floorId,
+    name: $('ff-name').value.trim(),
+    sortOrder: Number.parseInt($('ff-sort').value, 10),
+    active: $('ff-active').checked
+  };
+  const fail = (message) => { $('ff-error').textContent = message; };
+
+  if (!CODE_PATTERN.test(floorId)) return fail('樓層代號只能用英文大寫、數字和「-」，2～12 碼');
+  if (isNew && floors.some((f) => f.floorId === floorId)) return fail(`這個樓層代號已經有了：${floorId}`);
+  if (!data.name) return fail('請輸入樓層名稱');
+  if (!Number.isInteger(data.sortOrder) || data.sortOrder < 0 || data.sortOrder > 9999) return fail('排序請填 0～9999 的整數');
+  // 還有使用中設備的樓層不能關掉
+  const inUse = activeMachinesOnFloor(floorId);
+  if (!data.active && inUse > 0) {
+    return fail(`這層還有 ${inUse} 台使用中的設備，請先把設備移到別層，或關掉它們的「使用中」`);
+  }
+  fail('');
+
+  setBusy($('ff-save'), true, '儲存中…');
+  try {
+    const ref = doc(db, 'floors', floorId);
+    if (isNew && (await getDoc(ref)).exists()) {
+      fail(`這個樓層代號已經有了：${floorId}`);
+      return;
+    }
+    await setDoc(ref, { ...data, ...stamp() });
+    closeFloorForm();
+    await loadAll();
+    toast(isNew ? `已新增樓層 ${floorId}` : `已儲存樓層 ${floorId}`);
+  } catch (err) {
+    fail(errorMessage(err));
+  } finally {
+    setBusy($('ff-save'), false);
+  }
+});
+</script>
+</body>
+</html>

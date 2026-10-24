@@ -8,7 +8,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
-<link rel="stylesheet" href="style.css">
+<!-- ?v=2：style.css 有改版時把數字加 1，瀏覽器才會抓新的樣式 -->
+<link rel="stylesheet" href="style.css?v=2">
 </head>
 <body>
 
@@ -93,7 +94,7 @@ const $ = (id) => document.getElementById(id);
 // 首頁的模組按鍵：roles＝哪些角色看得到；href 是 null 代表還沒做（顯示「準備中」）
 const MODULES = [
   { label: '設備看板', desc: '即時機台狀態', href: null, roles: ['admin', 'maintainer', 'viewer'] },
-  { label: '主檔維護', desc: '單位、樓層、設備', href: null, roles: ['admin'] },
+  { label: '主檔維護', desc: '設備、樓層', href: 'master.html', roles: ['admin'] },
   { label: '人員管理', desc: '帳號、角色、負責單位', href: 'users.html', roles: ['admin'] }
 ];
 

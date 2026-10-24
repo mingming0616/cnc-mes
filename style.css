@@ -108,15 +108,23 @@ a { color: inherit; }
 .field { display: grid; gap: 6px; margin: 0 0 14px; padding: 0; border: 0; min-width: 0; }
 .field > span, .field > legend { font-size: 15px; color: var(--ink-soft); padding: 0; margin-bottom: 6px; }
 .field > span { margin-bottom: 0; }
-.field input[type="text"], .field input[type="password"] {
+.field input[type="text"], .field input[type="password"], .field input[type="number"],
+.field input[type="search"], .field select {
   width: 100%; min-height: 52px; padding: 0 14px;
   border: 2px solid var(--rule-strong); border-radius: var(--radius);
-  background: #fff; color: var(--ink);
+  background-color: #fff; color: var(--ink);
   font: inherit; font-size: 18px;   /* 18px：iPhone 點輸入框才不會自動放大畫面 */
+  -webkit-appearance: none; appearance: none;
 }
-.field input:focus { border-color: var(--ink); outline: none; }
-.field input:disabled { background: var(--sunk); color: var(--ink-soft); }
-#login-empno, #f-empno { font-family: var(--font-code); font-size: 22px; letter-spacing: .08em; text-transform: uppercase; }
+/* 下拉選單右邊的箭頭 */
+.field select {
+  padding-right: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1l6 6 6-6' fill='none' stroke='%231D262D' stroke-width='2'/%3E%3C/svg%3E");
+  background-repeat: no-repeat; background-position: right 14px center;
+}
+.field input:focus, .field select:focus { border-color: var(--ink); outline: none; }
+.field input:disabled, .field select:disabled { background-color: var(--sunk); color: var(--ink-soft); }
+#login-empno, #f-empno, #mf-id, #ff-id { font-family: var(--font-code); font-size: 22px; letter-spacing: .08em; text-transform: uppercase; }
 
 .check { display: inline-flex; align-items: center; gap: 10px; min-height: 44px; cursor: pointer; }
 .check input { width: 24px; height: 24px; margin: 0; accent-color: var(--ink); }
@@ -222,4 +230,64 @@ dialog::backdrop { background: rgba(29, 38, 45, .55); }
 @media (prefers-reduced-motion: reduce) {
   .toast { transition: none; }
   .key:active { transform: none; }
+}
+
+/* ============================================================
+   以下為功能②（主檔維護）新增的樣式
+   ============================================================ */
+
+/* ---------- 分頁切換（設備／樓層） ---------- */
+.tabs {
+  display: inline-grid; grid-auto-flow: column; margin-bottom: 18px;
+  border: 2px solid var(--ink); border-radius: var(--radius); overflow: hidden;
+}
+.tabs button {
+  min-height: 48px; padding: 0 30px; border: 0;
+  background: var(--panel); color: var(--ink);
+  font: inherit; font-weight: 600; cursor: pointer;
+}
+.tabs button + button { border-left: 2px solid var(--ink); }
+.tabs button[aria-selected="true"] { background: var(--ink); color: #fff; }
+
+/* ---------- 篩選列、表單排版 ---------- */
+.filters { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 0 12px; }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 0 16px; }
+
+/* ---------- 設備、樓層清單 ---------- */
+.col-id { font-family: var(--font-code); font-size: 20px; font-weight: 600; letter-spacing: .04em; }
+.col-cat, .col-model, .col-floor { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.col-model { font-weight: 600; }
+
+.ledger-machines .ledger-head, .ledger-machines .ledger-row {
+  grid-template-columns: 100px minmax(0, 1fr) minmax(0, 1.3fr) minmax(0, 1fr) 76px;
+}
+.ledger-floors .ledger-head, .ledger-floors .ledger-row {
+  grid-template-columns: 120px minmax(0, 1.5fr) 64px 76px 76px;
+}
+
+@media (max-width: 640px) {
+  /* 設備：第一行 編號｜廠牌型號｜狀態，第二行 類別｜樓層 */
+  .ledger-machines .ledger-row {
+    grid-template-columns: 76px minmax(0, 1fr) auto;
+    grid-template-areas: "id model state" "id cat floor";
+  }
+  .ledger-machines .col-id { grid-area: id; }
+  .ledger-machines .col-model { grid-area: model; }
+  .ledger-machines .col-state { grid-area: state; justify-self: end; }
+  .ledger-machines .col-cat { grid-area: cat; font-size: 15px; color: var(--ink-soft); }
+  .ledger-machines .col-floor { grid-area: floor; font-size: 15px; color: var(--ink-soft); justify-self: end; }
+
+  /* 樓層：第一行 代號｜名稱｜狀態，第二行 排序｜設備數 */
+  .ledger-floors .ledger-row {
+    grid-template-columns: 96px minmax(0, 1fr) auto;
+    grid-template-areas: "id name state" "id sort count";
+  }
+  .ledger-floors .col-id { grid-area: id; }
+  .ledger-floors .col-name { grid-area: name; }
+  .ledger-floors .col-state { grid-area: state; justify-self: end; }
+  .ledger-floors .col-sort { grid-area: sort; font-size: 15px; color: var(--ink-soft); }
+  .ledger-floors .col-sort::before { content: "排序 "; }
+  .ledger-floors .col-count { grid-area: count; font-size: 15px; color: var(--ink-soft); justify-self: end; }
+
+  .tabs { display: grid; grid-template-columns: 1fr 1fr; }
 }
