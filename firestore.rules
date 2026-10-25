@@ -1,7 +1,7 @@
 rules_version = '2';
 
 // ============================================================
-// CNC MES 安全規則（功能①登入＋人員、②主檔維護、③設備看板、④異動履歷、⑤修正紀錄、⑧平面圖）
+// CNC MES 安全規則（功能①登入＋人員、②主檔維護、③設備看板、④異動履歷、⑤修正紀錄、⑧平面圖、⑩借出狀態）
 // 發布方式：Firebase 主控台 → Firestore →「规则」→ 全部取代貼上 →「发布」
 // 重點：沒登入、沒有人員資料、或已停用 → 什麼都不能讀寫
 // 前提：Authentication 已關閉自行註冊，帳號只能在主控台建立
@@ -199,9 +199,9 @@ service cloud.firestore {
       return /databases/$(database)/documents/machineEvents/$(eventId);
     }
 
-    // 8 種狀態代碼
+    // 9 種狀態代碼（功能⑩加「借出」lent）
     function statusCodeOk(code) {
-      return code in ['running', 'setup', 'waiting', 'fault', 'qualityHold', 'maintenance', 'idle', 'offline'];
+      return code in ['running', 'setup', 'waiting', 'fault', 'qualityHold', 'maintenance', 'idle', 'offline', 'lent'];
     }
 
     // 可以切換這個單位機台狀態的人：管理者（全部單位）、維護員（負責單位）

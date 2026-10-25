@@ -66,8 +66,15 @@
     <!-- 只有管理者、而且預設資料還沒建立時才出現 -->
     <section id="setup-card" class="setup" hidden>
       <h2>第一次使用：建立預設資料</h2>
-      <p>會建立銑床課（8 種狀態和原因清單）以及班別設定。已經有的資料不會被覆蓋。</p>
+      <p>會建立銑床課（9 種狀態和原因清單）以及班別設定。已經有的資料不會被覆蓋。</p>
       <button id="btn-setup" class="btn primary" type="button">建立預設資料</button>
+    </section>
+    <!-- 只有管理者、而且單位設定還沒更新時才出現（功能⑩：新增「借出」狀態）；按一次就好 -->
+    <section id="upgrade-card" class="setup" hidden>
+      <h2>設定更新：新增「借出」狀態</h2>
+      <p>銑床課會多一個狀態「借出」（原因選借用單位：生技課、其他），借出時間不算銑床課的稼動率；
+        「停用」下面的原因「借出」會關掉（以前的紀錄照樣看得到）。其他設定不會變動。</p>
+      <button id="btn-upgrade" class="btn primary" type="button">更新設定</button>
     </section>
     <nav id="module-keys" class="keys" aria-label="功能"></nav>
   </main>
@@ -93,9 +100,10 @@
 // index.html：登入畫面＋首頁
 //   功能⑥：網址帶 ?next=machine&machineId=設備編號（機台頁沒登入時帶過來）
 //     → 登入後直接回到那台機的機台頁，不進首頁
+//   功能⑩：預設資料加上狀態「借出」；已經建好的銑床課用「設定更新」按鈕補上（按一次就好）
 // ============================================================
 import {
-  db, doc, getDoc, writeBatch, serverTimestamp,
+  db, doc, getDoc, getDocFromServer, writeBatch, serverTimestamp,
   watchAuth, login, logout, loadProfile, changePassword, myEmpNo,
   normalizeEmpNo, EMPNO_PATTERN, ROLE_LABELS, errorMessage, toast, setBusy
 } from './common.js';
@@ -112,7 +120,12 @@ const MODULES = [
 // 原因清單小工具：[['代碼', '名稱'], ...] → [{ code, label, active }]
 const reasons = (pairs) => pairs.map(([code, label]) => ({ code, label, active: true }));
 
-// 「建立預設資料」要寫入的銑床課設定（對應「資料結構說明」第一階段 v1）
+// 功能⑩「借出」狀態：機台留在原位、暫時借給別的單位用；借出時間不算銑床課稼動率（group: excluded）
+//   原因＝借用單位（必選）；顏色暫定青色，之後可再改
+const LENT_STATUS = { code: 'lent', label: '借出', color: '#26C6DA', group: 'excluded', needsReason: 'required', alert: false };
+const LENT_REASONS = reasons([['prodTech', '生技課'], ['other', '其他']]);
+
+// 「建立預設資料」要寫入的銑床課設定（對應「資料結構說明」第一階段 v1.9）
 //   group：稼動率分組 operating 稼動／loss 停機損失／planned 計畫內停機／excluded 不列入產能
 //   needsReason：原因 required 必選／optional 選填／none 不用選
 //   alert：切到這個狀態時要不要跳出提醒
@@ -128,7 +141,8 @@ const DEFAULT_MILLING = {
     { code: 'qualityHold', label: '品質異常', color: '#F07C00', group: 'loss',      needsReason: 'required', alert: true },
     { code: 'maintenance', label: '保養中',   color: '#8E44AD', group: 'planned',   needsReason: 'optional', alert: false },
     { code: 'idle',        label: '無排產',   color: '#9AA0A6', group: 'planned',   needsReason: 'none',     alert: false },
-    { code: 'offline',     label: '停用',     color: '#5F6368', group: 'excluded',  needsReason: 'required', alert: false }
+    { code: 'offline',     label: '停用',     color: '#5F6368', group: 'excluded',  needsReason: 'required', alert: false },
+    LENT_STATUS
   ],
   reasons: {
     waiting: reasons([['material', '待料'], ['tool', '待刀具'], ['fixture', '待治具'], ['program', '待程式'],
@@ -137,9 +151,28 @@ const DEFAULT_MILLING = {
                     ['electrical', '電控'], ['crash', '撞機'], ['other', '其他']]),
     qualityHold: reasons([['dimension', '尺寸不良'], ['appearance', '外觀不良'], ['other', '其他']]),
     maintenance: reasons([['pm', '定期保養'], ['inspection', '點檢']]),
-    offline: reasons([['lent', '借出'], ['installation', '安裝驗收'], ['relocation', '搬遷'], ['scrap', '待報廢']])
+    // 「停用」下面的「借出」改用獨立的「借出」狀態，這裡關掉（active: false）；代碼留著，舊紀錄才看得懂
+    offline: [{ code: 'lent', label: '借出', active: false },
+              ...reasons([['installation', '安裝驗收'], ['relocation', '搬遷'], ['scrap', '待報廢']])],
+    lent: LENT_REASONS
   }
 };
+
+// ---------- 單位設定更新（已經建好的銑床課要補的東西；按一次就好，按過按鈕就不會再出現） ----------
+// 功能⑩：新增「借出」狀態＋借用單位原因；「停用」下面的「借出」原因關掉
+//   只補缺的，不動其他狀態、原因（之後在畫面上改過的顏色、名稱都保留）
+function needsLentUpgrade(dept) {
+  return !(dept.statuses || []).some((s) => s.code === 'lent');
+}
+function withLent(dept) {
+  const statuses = [...(dept.statuses || [])];
+  const at = statuses.findIndex((s) => s.code === 'offline');
+  statuses.splice(at >= 0 ? at + 1 : statuses.length, 0, { ...LENT_STATUS });   // 放在「停用」後面
+  const reasonsNow = { ...(dept.reasons || {}) };
+  reasonsNow.offline = (reasonsNow.offline || []).map((r) => (r.code === 'lent' ? { ...r, active: false } : r));
+  if (!Array.isArray(reasonsNow.lent) || !reasonsNow.lent.length) reasonsNow.lent = LENT_REASONS.map((r) => ({ ...r }));
+  return { statuses, reasons: reasonsNow };
+}
 
 // 班別設定：生產日從 08:00 起算，夜班整班算上班那天
 const DEFAULT_SHIFTS = {
@@ -270,8 +303,10 @@ async function checkSetup() {
       getDoc(doc(db, 'settings', 'shifts'))
     ]);
     $('setup-card').hidden = dept.exists() && shifts.exists();
+    $('upgrade-card').hidden = !(dept.exists() && needsLentUpgrade(dept.data()));
   } catch (err) {
     $('setup-card').hidden = true;
+    $('upgrade-card').hidden = true;
     toast(errorMessage(err), 'error');
   }
 }
@@ -294,6 +329,30 @@ $('btn-setup').addEventListener('click', async () => {
     toast(errorMessage(err), 'error');
   } finally {
     setBusy($('btn-setup'), false);
+  }
+});
+
+// 功能⑩：銑床課補上「借出」狀態（只按一次；先跟資料庫確認最新內容，已經補過就不再寫）
+$('btn-upgrade').addEventListener('click', async () => {
+  if (!confirm('要幫銑床課新增「借出」狀態嗎？\n「停用」下面的原因「借出」會關掉，以前的紀錄照樣看得到。')) return;
+  setBusy($('btn-upgrade'), true, '更新中…');
+  try {
+    const deptRef = doc(db, 'departments', 'milling');
+    const dept = await getDocFromServer(deptRef);   // 一定要有網路：用資料庫最新的內容來改
+    if (!dept.exists()) throw new Error('找不到銑床課，請先按「建立預設資料」');
+    if (needsLentUpgrade(dept.data())) {
+      const batch = writeBatch(db);
+      batch.update(deptRef, { ...withLent(dept.data()), updatedAt: serverTimestamp(), updatedByEmpNo: myEmpNo() });
+      await batch.commit();
+      toast('已新增「借出」狀態');
+    } else {
+      toast('已經更新過了，不用再按');
+    }
+    $('upgrade-card').hidden = true;
+  } catch (err) {
+    toast(err.code ? errorMessage(err) : err.message, 'error');
+  } finally {
+    setBusy($('btn-upgrade'), false);
   }
 });
 
