@@ -1,0 +1,262 @@
+/* ============================================================
+   floorplan.css — 功能⑧：平面圖＋深色看板
+   ‧.fp-…：平面圖本身（看板、主檔維護的匯入預覽共用），配色照 v3.3
+   ‧.board-page、.bd-…：深色看板（只有 board.html 用）
+   注意：機台面板、異動履歷、修正紀錄的畫面維持淺色（跟機台頁共用 board.css），這裡不改它們
+   ============================================================ */
+
+/* ==================== 平面圖 ==================== */
+.fp-wrap {
+  padding: 8px; overflow: auto; -webkit-overflow-scrolling: touch;
+  background: #111724; border: 1px solid #232e44; border-radius: 12px;
+}
+.fp-svg { display: block; width: 100%; height: auto; transition: transform .45s ease; }
+.fp-svg text { font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif; }
+.fp-bg { fill: #0d131f; }
+
+/* 牆、通道、消防、電控箱、其他設施（線寬固定，放大縮小都一樣粗） */
+.fp-line { fill: none; vector-effect: non-scaling-stroke; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
+.fp-line-wall { stroke: #8094ba; stroke-width: 1.3; }
+.fp-line-aisle { stroke: #e0b11a; stroke-width: 1.6; stroke-dasharray: 6 4; }
+.fp-line-fire { stroke: #ef4444; stroke-width: 1.4; }
+.fp-line-ctrl { stroke: #5b6b86; stroke-width: 1; }
+.fp-line-misc { stroke: #34425e; stroke-width: 1; }
+.fp-fill { pointer-events: none; }
+.fp-fill-wall { fill: #46557a; }
+.fp-fill-ctrl { fill: #2a3550; }
+.fp-fill-fire { fill: #7f1d1d; }
+.fp-fill-misc { fill: #26304a; }
+.fp-fill-aisle { fill: #4a3d12; }
+.fp-area {
+  font-weight: 700; fill: #c9d6ee; paint-order: stroke; stroke: #0d131f; stroke-linejoin: round;
+  text-anchor: middle; letter-spacing: 4px; pointer-events: none;
+}
+.fp-area.is-dim { fill: #5d6d8c; font-weight: 500; letter-spacing: 1px; }
+
+/* 圖層開關：通道、設施細節（電控箱、其他設施、空調進風口這類小標示）、消防；牆一定顯示 */
+.no-aisle .fp-line-aisle, .no-aisle .fp-fill-aisle,
+.no-fire .fp-line-fire, .no-fire .fp-fill-fire,
+.no-detail .fp-line-misc, .no-detail .fp-fill-misc,
+.no-detail .fp-line-ctrl, .no-detail .fp-fill-ctrl,
+.no-detail .fp-area.is-dim { display: none; }
+
+/* 機台：本體顏色＝狀態（--c），字色（--fg）由程式選對比高的 */
+.fp-node { cursor: pointer; outline: none; transition: opacity .2s; }
+.fp-shadow { fill: #000; opacity: .38; }
+.fp-body { fill: var(--c); stroke: rgba(0, 0, 0, .35); stroke-width: 1; vector-effect: non-scaling-stroke; transition: fill .3s; }
+.fp-gloss, .fp-node text { pointer-events: none; }
+.fp-node text { fill: var(--fg, #fff); }
+.fp-node .t-id { font-weight: 800; letter-spacing: .3px; }
+.fp-node .t-pn { font-weight: 700; }
+.fp-node .t-sub { opacity: .9; }
+.fp-node .t-note { font-weight: 700; fill: #fff; paint-order: stroke; stroke: rgba(0, 0, 0, .65); stroke-linejoin: round; }
+.fp-node:hover .fp-body, .fp-node:focus-visible .fp-body { stroke: #fff; stroke-width: 2.5; }
+
+/* 故障、品質異常：外框一明一暗；超過 2 小時閃快、框變粗 */
+.fp-ring { fill: none; stroke: var(--c); stroke-width: 3; opacity: 0; vector-effect: non-scaling-stroke; }
+.fp-node.is-alert .fp-ring { animation: fp-ring 1.4s ease-in-out infinite; }
+.fp-node.is-alert-long .fp-ring { stroke-width: 6; animation-duration: .7s; }
+@keyframes fp-ring { 0%, 100% { opacity: .15; } 50% { opacity: 1; } }
+
+/* 深灰這類顏色（例：停用）在深色底上加一圈亮邊 */
+.fp-node.is-edge .fp-body { stroke: rgba(255, 255, 255, .8); stroke-width: 2; }
+
+/* 還沒設定過狀態：深色底＋虛線框 */
+.fp-node.is-unset .fp-body { fill: #1f2940; stroke: #a3aec4; stroke-width: 1.5; stroke-dasharray: 6 4; }
+.fp-node.is-unset .fp-gloss { display: none; }
+.fp-node.is-unset text { fill: #e7ecf5; }
+
+/* 圖上有、這層主檔沒有（主檔沒有、不使用、或在別層）：灰色虛線框 */
+.fp-node.is-ghost { cursor: help; }
+.fp-node.is-ghost .fp-body { fill: transparent; stroke: #6f7c96; stroke-width: 1.5; stroke-dasharray: 6 4; }
+.fp-node.is-ghost .fp-shadow, .fp-node.is-ghost .fp-gloss, .fp-node.is-ghost .fp-side { display: none; }
+.fp-node.is-ghost text { fill: #7d8aa3; }
+
+.fp-node.is-other { opacity: .28; }        /* 別單位的機台：淡淡顯示 */
+.fp-node.is-pending { opacity: .7; }       /* 剛改完、還在同步 */
+.fp-svg.is-hl .fp-node:not(.is-match) { opacity: .15; }   /* 點了統計卡：只亮那種狀態 */
+
+/* 立體：整張圖往後倒（角度照 v3.3 量過，整層都留在框內） */
+.fp-wrap.is3d { perspective: 2600px; perspective-origin: 50% 20%; }
+.fp-wrap.is3d .fp-svg { transform: scale(.92) rotateX(28deg); transform-origin: 50% 60%; }
+
+@media (prefers-reduced-motion: reduce) {
+  .fp-node .fp-ring { animation: none !important; }
+  .fp-node.is-alert .fp-ring { opacity: 1; }
+  .fp-svg { transition: none; }
+}
+
+/* ==================== 深色看板（board.html） ==================== */
+.board-page {
+  --bd-bg: #0a0e16;
+  --bd-surface: #111724;
+  --bd-surface-2: #171f30;
+  --bd-surface-3: #1f2940;
+  --bd-border: #232e44;
+  --bd-border-2: #2f3c57;
+  --bd-text: #e7ecf5;
+  --bd-text-2: #a3aec4;
+  --bd-text-3: #7d8aa3;
+  --bd-accent: #2f6fec;
+}
+body.board-page { background: var(--bd-bg); color: var(--bd-text); }
+.board-page .topbar { background: var(--bd-surface); border-bottom: 1px solid var(--bd-border); }
+.board-page .state { color: var(--bd-text-2); }
+.board-page .conn { margin-left: 0; }
+.board-page .toast { border: 1px solid var(--bd-border-2); }
+.bd-clock {
+  margin-left: auto; font-family: var(--font-code); font-size: 18px; font-weight: 600;
+  color: var(--bd-text-2); white-space: nowrap; font-variant-numeric: tabular-nums;
+}
+
+/* ---------- 篩選：單位、樓層 ---------- */
+.bd-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px; margin: 0 0 14px; }
+.bd-dept { display: flex; align-items: center; gap: 8px; margin: 0; }
+.bd-dept > span { font-size: 15px; color: var(--bd-text-2); }
+.bd-dept select {
+  min-height: 48px; padding: 0 42px 0 14px;
+  border: 1px solid var(--bd-border-2); border-radius: 10px;
+  background: var(--bd-surface) url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 14 9'%3E%3Cpath d='M1 1l6 6 6-6' fill='none' stroke='%23a3aec4' stroke-width='2'/%3E%3C/svg%3E") no-repeat right 14px center;
+  color: var(--bd-text); font: inherit; font-size: 18px;   /* 18px：iPhone 點選單才不會自動放大畫面 */
+  -webkit-appearance: none; appearance: none; color-scheme: dark;
+}
+.bd-dept select:focus { outline: 2px solid var(--bd-accent); outline-offset: 1px; }
+
+/* 分段按鈕（樓層、平面圖／卡片、平面／立體） */
+.bd-seg {
+  display: flex; gap: 4px; padding: 4px; max-width: 100%; overflow-x: auto; scrollbar-width: none;
+  background: var(--bd-surface); border: 1px solid var(--bd-border); border-radius: 12px;
+}
+.bd-seg::-webkit-scrollbar { display: none; }
+.bd-seg.is-wrap { flex-wrap: wrap; overflow: visible; }   /* 樓層按鈕：放不下就換行，不用橫向滑 */
+.bd-seg button {
+  flex: none; min-height: 44px; padding: 0 16px; border: 0; border-radius: 9px;
+  background: transparent; color: var(--bd-text-2);
+  font: inherit; font-size: 16px; font-weight: 600; white-space: nowrap; cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+.bd-seg button[aria-pressed="true"] { background: var(--bd-accent); color: #fff; }
+.bd-seg button:focus-visible { outline: 2px solid #fff; outline-offset: -2px; }
+
+/* ---------- 狀態統計卡（點一張＝只亮那種狀態） ---------- */
+.bd-kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(108px, 1fr)); gap: 10px; margin: 0 0 14px; }
+.bd-kpi {
+  position: relative; overflow: hidden; display: grid; align-content: start;
+  min-height: 86px; padding: 10px 12px 8px 16px; text-align: left;
+  background: var(--bd-surface); border: 1px solid var(--bd-border); border-radius: 12px;
+  color: var(--bd-text); font: inherit; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.bd-kpi::before { content: ""; position: absolute; left: 0; top: 0; bottom: 0; width: 4px; background: var(--c); }
+.bd-kpi[aria-pressed="true"] { border-color: var(--c); box-shadow: inset 0 0 0 2px var(--c); }
+.bd-kpi:focus-visible { outline: 2px solid #fff; outline-offset: 2px; }
+.bd-kpi-label {
+  display: flex; align-items: center; gap: 6px; font-size: 15px; color: var(--bd-text-2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.bd-kpi-value { font-family: var(--font-code); font-size: 32px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.bd-kpi-sub { font-size: 13px; color: var(--bd-text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.bd-kpi.is-zero .bd-kpi-value { color: var(--bd-text-3); }
+.bd-kpi.is-unset { --c: #a3aec4; }
+.bd-kpi.is-util { cursor: default; --c: #4c8dff; background: linear-gradient(160deg, rgba(76, 141, 255, .16), var(--bd-surface) 70%); }
+.bd-dot { flex: none; width: 10px; height: 10px; border-radius: 50%; background: var(--c); }
+.bd-dot.is-unset { background: transparent; border: 2px dashed #a3aec4; }
+
+/* ---------- 異常列（故障、品質異常） ---------- */
+.bd-alerts {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 0 0 14px; padding: 10px 12px;
+  background: rgba(229, 72, 77, .08); border: 1px solid rgba(229, 72, 77, .45); border-radius: 12px;
+}
+.bd-alerts-title { font-weight: 700; color: #fca5a5; margin-right: 4px; }
+.bd-alert-chip {
+  min-height: 44px; padding: 0 12px; border: 0; border-radius: 8px;
+  background: var(--c); color: var(--fg); font: inherit; font-weight: 700; cursor: pointer;
+}
+
+/* ---------- 工具列：平面圖／卡片、平面／立體、圖層、縮放 ---------- */
+.bd-tools { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; margin: 0 0 10px; }
+.bd-maptools { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bd-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.bd-chip {
+  min-height: 44px; padding: 0 14px; border-radius: 999px;
+  border: 1px solid var(--bd-border-2); background: transparent; color: var(--bd-text-3);
+  font: inherit; font-size: 15px; font-weight: 600; cursor: pointer;
+}
+.bd-chip[aria-pressed="true"] { background: var(--bd-surface-3); color: var(--bd-text); border-color: #4b5d80; }
+.bd-chip[aria-pressed="true"]::before { content: "✓ "; color: #4ade80; }
+.bd-zoom { display: flex; align-items: center; gap: 4px; }
+.bd-btn {
+  min-width: 44px; min-height: 44px; padding: 0 12px;
+  border: 1px solid var(--bd-border-2); border-radius: 9px;
+  background: var(--bd-surface-2); color: var(--bd-text); font: inherit; font-weight: 600; cursor: pointer;
+}
+.bd-btn:active { background: var(--bd-surface-3); }
+.bd-zoom-label { min-width: 56px; text-align: center; font-size: 15px; color: var(--bd-text-2); }
+
+/* 平面圖上方的樓層名稱、來源；載入中、讀不到的訊息 */
+.bd-planhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; margin: 0 0 8px; }
+.bd-planname { font-size: 20px; font-weight: 700; }
+.bd-planmeta { font-size: 14px; color: var(--bd-text-3); }
+.bd-msg {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 10px 14px;
+  margin: 0 0 12px; padding: 14px 16px;
+  background: var(--bd-surface); border: 1px solid var(--bd-border-2); border-radius: 12px; color: var(--bd-text-2);
+}
+.bd-msg.is-error { border-color: rgba(229, 72, 77, .5); color: #fca5a5; }
+
+/* 圖例 */
+.bd-legend { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; margin: 10px 0 20px; font-size: 14px; color: var(--bd-text-3); }
+.bd-legend .lg { display: inline-flex; align-items: center; gap: 6px; }
+.bd-legend .sw { width: 12px; height: 12px; border-radius: 3px; background: var(--c); }
+.bd-legend .sw.is-ghost { background: transparent; border: 2px dashed #6f7c96; }
+.bd-legend .sw.is-unset { background: #1f2940; border: 2px dashed #a3aec4; }
+
+/* ---------- 卡片（卡片模式、未配置位置） ---------- */
+.bd-sec { margin: 0 0 24px; }
+.bd-sec-title {
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px;
+  font-size: 19px; margin: 0 0 10px; padding-bottom: 6px; border-bottom: 1px solid var(--bd-border-2);
+}
+.bd-sec-count { font-size: 15px; font-weight: 500; color: var(--bd-text-3); }
+.bd-sec-note { font-size: 14px; font-weight: 400; color: var(--bd-text-3); }
+.bd-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 12px; }
+.bd-card {
+  display: grid; align-content: start; gap: 2px; min-height: 118px; padding: 12px 14px;
+  border: 0; border-radius: 10px; background: var(--c); color: var(--fg);
+  font: inherit; text-align: left; cursor: pointer; -webkit-tap-highlight-color: transparent;
+}
+.bd-card:active { transform: translateY(2px); }
+.bd-card:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+.c-id { font-family: var(--font-code); font-size: 28px; font-weight: 700; line-height: 1.05; letter-spacing: .03em; }
+.c-status { font-size: 17px; font-weight: 700; }
+.c-reason, .c-time { font-size: 15px; }
+.c-part, .c-model { font-size: 14px; opacity: .85; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bd-card.is-edge { box-shadow: inset 0 0 0 2px rgba(255, 255, 255, .7); }
+.bd-card.is-unset { background: var(--bd-surface); color: var(--bd-text-2); border: 2px dashed var(--bd-border-2); }
+.bd-card.is-unset .c-id { color: var(--bd-text); }
+.bd-card.is-pending { opacity: .7; }
+.bd-card.is-dimmed { opacity: .2; }
+/* 故障、品質異常：外框一明一暗；超過 2 小時閃快 */
+.bd-card.is-alert { box-shadow: 0 0 0 3px var(--bd-bg), 0 0 0 7px var(--c); animation: bd-pulse 1.6s ease-in-out infinite; }
+.bd-card.is-alert.is-long { animation-duration: .8s; }
+@keyframes bd-pulse { 50% { box-shadow: 0 0 0 3px var(--bd-bg), 0 0 0 7px transparent; } }
+.bd-empty { color: var(--bd-text-3); padding: 24px 0; }
+
+@media (max-width: 640px) {
+  .bd-kpis { grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
+  .bd-kpi { min-height: 60px; padding: 6px 6px 4px 10px; }
+  .bd-kpi-label { font-size: 13px; gap: 4px; }
+  .bd-dot { width: 8px; height: 8px; }
+  .bd-kpi-value { font-size: 22px; }
+  .bd-seg button { padding: 0 12px; }
+  .bd-kpi-sub { display: none; }
+  .bd-grid { grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; }
+  .c-id { font-size: 24px; }
+  .bd-clock { font-size: 15px; }
+  .bd-dept { flex: 1 1 100%; }
+  .bd-dept select { flex: 1; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bd-card.is-alert { animation: none; }
+  .bd-card:active { transform: none; }
+}

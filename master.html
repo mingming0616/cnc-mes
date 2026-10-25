@@ -9,6 +9,8 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
 <!-- ?v=2：style.css 有改版時把數字加 1，瀏覽器才會抓新的樣式 -->
 <link rel="stylesheet" href="style.css?v=2">
+<!-- 功能⑧：平面圖預覽的樣式（跟看板共用）；floorplan.css 改版時把 v 的數字加 1（board.html 也有引用） -->
+<link rel="stylesheet" href="floorplan.css?v=1">
 <style>
 /* 功能⑦「匯入設備」的樣式：只有這頁用，寫在這裡，style.css 和其他頁的版本號都不用動 */
 .imp-pick { position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 14px; }
@@ -31,6 +33,17 @@
 .imp-box.is-error > summary { color: var(--error); }
 .imp-done { padding: 10px 14px; margin: 0 0 12px; border: 2px solid var(--ink); border-radius: var(--radius); background: var(--sunk); font-weight: 600; }
 .imp-hint { font-weight: 600; }
+/* 功能⑧「平面圖」的樣式：只有這頁用 */
+.pl-floor { max-width: 360px; }
+.pl-current {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px;
+  margin: 0 0 14px; padding: 10px 14px; border: 1px solid var(--rule-strong); border-radius: var(--radius); background: var(--sunk);
+}
+.pl-current .btn { min-height: 44px; }
+.pl-current-text { flex: 1 1 260px; }
+.pl-map { margin: 0 0 12px; }
+.pl-map .fp-wrap { max-height: 70vh; }
+.pl-map-note { margin: 0 0 6px; }
 </style>
 </head>
 <body>
@@ -146,7 +159,11 @@
     <!-- ==================== 樓層分頁 ==================== -->
     <div id="pane-floors" role="tabpanel" aria-labelledby="tab-floors" hidden>
       <div class="toolbar">
-        <button id="btn-add-floor" class="btn primary" type="button">新增樓層</button>
+        <div class="toolbar" style="margin: 0">
+          <button id="btn-add-floor" class="btn primary" type="button">新增樓層</button>
+          <!-- 功能⑧：匯入看板用的平面圖（v3.3 轉出來的平面圖檔） -->
+          <button id="btn-plan" class="btn" type="button">平面圖</button>
+        </div>
         <label class="check">
           <input id="fl-show-off" type="checkbox">
           <span>顯示不使用的</span>
@@ -173,6 +190,27 @@
         </div>
       </form>
 
+      <!-- ========== 功能⑧：平面圖（看板用） ========== -->
+      <section id="plan-card" class="sheet" hidden>
+        <h2>平面圖</h2>
+        <p class="muted notes">設備看板用這張圖畫機台位置。選樓層 → 選 v3.3 轉出來的平面圖檔（例：floorplans 資料夾裡的 2F_2.js）→ 先預覽 → 按「確定匯入」才存。
+重新匯入會取代這層原本的平面圖；廠房配置改了，重新轉檔再匯入就好，不用改程式。
+平面圖檔是真實的廠房配置，存在自己電腦就好，不要上傳到 GitHub。</p>
+        <label class="field pl-floor"><span>樓層</span><select id="pl-floor"></select></label>
+        <div id="pl-current" class="pl-current"></div>
+        <div class="imp-pick">
+          <label class="btn" for="pl-file">選擇平面圖檔</label>
+          <input id="pl-file" class="imp-file" type="file">
+          <span id="pl-filename" class="muted"></span>
+        </div>
+        <div id="pl-preview"></div>
+        <p id="pl-error" class="form-error" role="alert"></p>
+        <div class="row-actions">
+          <button id="pl-close" class="btn" type="button">關閉</button>
+          <button id="pl-run" class="btn primary" type="button" hidden>確定匯入</button>
+        </div>
+      </section>
+
       <ul id="floor-list" class="ledger ledger-floors" aria-label="樓層清單"></ul>
     </div>
   </section>
@@ -185,12 +223,15 @@
 //   規則：不能刪除，不用了就關掉「使用中」；編號建立後不能改
 //   用詞：主檔關掉「使用中」→ 顯示「不使用」
 //        （跟機台狀態的「停用」不同，狀態的停用是借出、安裝驗收等暫時不能生產）
-//   功能⑦：設備分頁加「匯入設備」，用 CSV 檔一次新增或修改很多台（程式在檔案最下面）
+//   功能⑦：設備分頁加「匯入設備」，用 CSV 檔一次新增或修改很多台
+//   功能⑧：樓層分頁加「平面圖」，匯入看板用的平面圖 floorPlans/{樓層代號}（程式在檔案最下面）
 // ============================================================
 import {
   db, collection, getDocs, getDocsFromServer, doc, getDoc, setDoc, serverTimestamp,
   requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime
 } from './common.js';
+// floorplan.js 改版時，把下面網址的 v 數字加 1（跟 board.html 一樣）
+import { parsePlanFile, planToText, byteLength, createPlanView, PLAN_TEXT_MAX, PLAN_BYTES_MAX } from './floorplan.js?v=1';
 
 const $ = (id) => document.getElementById(id);
 
@@ -1035,6 +1076,320 @@ $('imp-run').addEventListener('click', async () => {
     } catch (err) {
       $('imp-error').textContent = `${$('imp-error').textContent} 重新讀取失敗：${errorMessage(err)}`.trim();
     }
+  }
+});
+
+// ==================== 功能⑧：平面圖（看板用） ====================
+// 流程：選樓層（先讀那層目前的平面圖）→ 選平面圖檔 → 檢查並預覽（這時還沒寫入）→ 按「確定匯入」
+// 規則：
+//   ‧存在 floorPlans/{樓層代號}，一層一筆；重新匯入＝整張取代
+//   ‧不能刪除；不要了就「停用這張平面圖」（active 關掉），看板那層就改回卡片
+//   ‧預覽列出：圖上機台跟設備主檔對不對得上（主檔沒有、不使用、在別層、這層有圖上沒有）
+//     對不上的不會擋，看板上會畫成灰色虛線框或列在「未配置位置」
+//   ‧檔案太大（資料庫一筆最多 1 MB）、圖上沒有機台、編號重複 → 不能匯入
+const PLAN_FILE_MAX = 3 * 1024 * 1024;   // 2廠 2F 的檔約 200 KB，太大多半是選錯檔
+const PLAN_WRITE_TIMEOUT_MS = 60000;     // 整張圖約 200 KB，網路慢時給 60 秒
+const PLAN_READ_TIMEOUT_MS = 20000;
+const PLAN_FLOOR_KEY = 'cncmes-master-plan-floor';   // 記住上次選的樓層
+
+let planFile = null;          // 選好的檔：{ name, plan, text, bytes, floorAuto }
+let planCurrent = null;       // 選的樓層目前的平面圖：{ state: 'loading'|'none'|'ok'|'error', data, error }
+let planPreview = null;       // 預覽圖
+let planBusy = false;         // 正在寫入：不能關閉、不能換檔、不能換樓層
+let planFloorTouched = false; // 自己選過樓層：選檔後就不自動換樓層
+let planReadSeq = 0;          // 換樓層很快的時候，只用最後一次讀到的
+let planDone = '';            // 匯入完成的訊息（重新讀取目前狀態後還要留著）
+
+const planFloorId = () => $('pl-floor').value;
+
+// 圖上的機台和設備主檔對照
+function comparePlan(plan, floorId) {
+  const byId = new Map(machines.map((m) => [m.machineId, m]));
+  const onPlan = new Set(plan.machines.map((m) => m.id));
+  const result = { matched: [], missing: [], inactive: [], otherFloor: [], unplaced: [] };
+  for (const pm of plan.machines) {
+    const m = byId.get(pm.id);
+    if (!m) result.missing.push(pm);
+    else if (m.active !== true) result.inactive.push(pm);
+    else if (m.floorId !== floorId) result.otherFloor.push({ ...pm, floorId: m.floorId });
+    else result.matched.push(pm);
+  }
+  result.unplaced = machines.filter((m) => m.active === true && m.floorId === floorId && !onPlan.has(m.machineId));
+  return result;
+}
+
+// 圖上的機台大多是哪一層的設備（選檔後自動選那層）
+function bestFloorFor(plan) {
+  let best = null;
+  for (const f of floors.filter((x) => x.active === true)) {
+    const n = comparePlan(plan, f.floorId).matched.length;
+    if (n > 0 && (!best || n > best.n)) best = { floorId: f.floorId, n };
+  }
+  return best;
+}
+
+function lockPlan(lock) {
+  planBusy = lock;
+  for (const id of ['pl-file', 'pl-close', 'pl-floor', 'btn-plan']) $(id).disabled = lock;
+  $('pl-current').querySelector('button')?.toggleAttribute('disabled', lock);
+}
+
+window.addEventListener('beforeunload', (event) => {
+  if (!planBusy) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
+
+// ---------- 打開、關閉 ----------
+$('btn-plan').addEventListener('click', () => {
+  closeFloorForm();
+  const usable = floors.filter((f) => f.active === true);
+  let saved = '';
+  try { saved = localStorage.getItem(PLAN_FLOOR_KEY) || ''; } catch { saved = ''; }
+  fillOptions($('pl-floor'), usable, (f) => f.floorId, (f) => `${f.name}（${f.floorId}）`, saved);
+  planFloorTouched = false;
+  resetPlanFile();
+  $('pl-error').textContent = '';
+  $('plan-card').hidden = false;
+  $('plan-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+  if (!usable.length) {
+    $('pl-current').textContent = '還沒有使用中的樓層，請先新增樓層。';
+    return;
+  }
+  loadPlanCurrent();
+});
+
+$('pl-close').addEventListener('click', () => {
+  if (planBusy) return;
+  $('plan-card').hidden = true;
+  resetPlanFile();
+});
+
+$('pl-floor').addEventListener('change', () => {
+  planFloorTouched = true;
+  try { localStorage.setItem(PLAN_FLOOR_KEY, planFloorId()); } catch { /* 存不了也沒關係 */ }
+  $('pl-error').textContent = '';
+  loadPlanCurrent();
+  renderPlanPreview();
+});
+
+function resetPlanFile() {
+  planFile = null;
+  planDone = '';
+  planPreview?.destroy();
+  planPreview = null;
+  $('pl-filename').textContent = '';
+  $('pl-preview').innerHTML = '';
+  $('pl-run').hidden = true;
+}
+
+// ---------- 選的樓層目前的平面圖（讀 1 筆） ----------
+async function loadPlanCurrent() {
+  const floorId = planFloorId();
+  const seq = (planReadSeq += 1);
+  planCurrent = { state: 'loading' };
+  renderPlanCurrent();
+  try {
+    const snap = await withTimeout(getDoc(doc(db, 'floorPlans', floorId)), PLAN_READ_TIMEOUT_MS);
+    if (seq !== planReadSeq) return;
+    planCurrent = snap.exists() ? { state: 'ok', data: snap.data() } : { state: 'none' };
+  } catch (err) {
+    if (seq !== planReadSeq) return;
+    planCurrent = { state: 'error', error: err.code === 'timeout' ? '網路太慢，讀不到' : errorMessage(err) };
+  }
+  renderPlanCurrent();
+  renderPlanPreview();
+}
+
+function renderPlanCurrent() {
+  const box = $('pl-current');
+  const c = planCurrent;
+  if (!c || c.state === 'loading') { box.textContent = '讀取這層目前的平面圖…'; return; }
+  if (c.state === 'error') {
+    box.innerHTML = `<span class="pl-current-text">讀不到這層目前的平面圖：${escapeHtml(c.error)}</span>`
+      + '<button type="button" class="btn" data-act="reload">重新讀取</button>';
+    return;
+  }
+  if (c.state === 'none') {
+    box.innerHTML = '<span class="pl-current-text">目前：這層還沒有平面圖，看板用卡片顯示。</span>';
+    return;
+  }
+  const d = c.data;
+  box.innerHTML = `<span class="pl-current-text">目前：${d.active === true ? '<b>使用中</b>' : '<b>已停用</b>（看板用卡片顯示）'}`
+    + `・來源 ${escapeHtml(d.source)}・圖上 ${escapeHtml(d.machineCount)} 台・${lastUpdatedText(d)}</span>`
+    + `<button type="button" class="btn" data-act="toggle">${d.active === true ? '停用這張平面圖' : '重新使用'}</button>`;
+  if (planBusy) box.querySelector('button')?.setAttribute('disabled', '');
+}
+
+$('pl-current').addEventListener('click', async (event) => {
+  const button = event.target.closest('button[data-act]');
+  if (!button || planBusy) return;
+  if (button.dataset.act === 'reload') { loadPlanCurrent(); return; }
+  // 停用／重新使用：只改 active（其他欄位不動，安全規則檢查合起來的整筆）
+  const floorId = planFloorId();
+  const next = planCurrent?.data?.active !== true;
+  lockPlan(true);
+  setBusy(button, true, '儲存中…');
+  $('pl-error').textContent = '';
+  try {
+    await withTimeout(setDoc(doc(db, 'floorPlans', floorId), { active: next, ...stamp() }, { merge: true }), PLAN_WRITE_TIMEOUT_MS);
+    toast(next ? `${floorName(floorId)} 的平面圖已重新使用` : `${floorName(floorId)} 的平面圖已停用，看板改用卡片`);
+  } catch (err) {
+    $('pl-error').textContent = err.code === 'timeout' ? '網路太慢，沒有存成功，請稍後再試' : errorMessage(err);
+  } finally {
+    lockPlan(false);
+    loadPlanCurrent();
+  }
+});
+
+// ---------- 選檔、檢查 ----------
+$('pl-file').addEventListener('change', async () => {
+  const file = $('pl-file').files?.[0];
+  if (!file) return;
+  resetPlanFile();
+  $('pl-error').textContent = '';
+  try {
+    if (file.size > PLAN_FILE_MAX) throw new Error('檔案超過 3 MB，請確認選的是平面圖檔（例：2F_2.js）');
+    const text = decodeCsv(await file.arrayBuffer());   // 跟匯入設備一樣：先當 UTF-8，不是再試 Big5
+    if (text === null) throw new Error('看不懂這個檔案的文字編碼，請確認選的是平面圖檔');
+    const { plan } = parsePlanFile(text);
+    const planText = planToText(plan);
+    planFile = { name: file.name, plan, text: planText, bytes: byteLength(planText), floorAuto: '' };
+    $('pl-filename').textContent = file.name;
+    // 還沒自己選過樓層：自動選圖上機台最多的那層
+    const best = bestFloorFor(plan);
+    if (!planFloorTouched && best && best.floorId !== planFloorId()) {
+      $('pl-floor').value = best.floorId;
+      planFile.floorAuto = best.floorId;
+      loadPlanCurrent();
+    } else if (best && best.floorId === planFloorId()) {
+      planFile.floorAuto = best.floorId;
+    }
+    renderPlanPreview();
+  } catch (err) {
+    $('pl-error').textContent = err.message || errorMessage(err);
+  } finally {
+    $('pl-file').value = '';   // 清掉，同一個檔才能再選一次
+  }
+});
+
+// ---------- 預覽畫面 ----------
+function renderPlanPreview() {
+  const doneText = planDone;
+  if (!planFile) {
+    $('pl-preview').innerHTML = doneText ? `<p class="imp-done">${escapeHtml(doneText)}</p>` : '';
+    $('pl-run').hidden = true;
+    return;
+  }
+  const floorId = planFloorId();
+  const { plan } = planFile;
+  const cmp = comparePlan(plan, floorId);
+  const errors = [];
+  if (!floorId) errors.push('請先選樓層');
+  if (!plan.machines.length) errors.push('圖上找不到機台（機台要有含設備編號的文字，例：M296）');
+  if (planFile.text.length > PLAN_TEXT_MAX || planFile.bytes > PLAN_BYTES_MAX) {
+    errors.push(`平面圖太大（${Math.round(planFile.bytes / 1024)} KB），資料庫一筆最多存約 ${Math.round(PLAN_BYTES_MAX / 1024)} KB；請在 DXF 刪掉不需要的圖層再轉一次`);
+  }
+  const warnings = [];
+  if (planFile.floorAuto && planFile.floorAuto === floorId && !planFloorTouched) {
+    warnings.push(`已自動選 ${floorName(floorId)}：圖上有 ${cmp.matched.length} 台是這層的設備。不對的話，上面的樓層可以改。`);
+  }
+  if (plan.machines.length && cmp.matched.length < plan.machines.length / 2) {
+    warnings.push(`圖上 ${plan.machines.length} 台裡，只有 ${cmp.matched.length} 台是 ${floorName(floorId)} 的設備，請確認樓層有沒有選錯。`);
+  }
+  if (planCurrent?.state === 'ok') {
+    const d = planCurrent.data;
+    warnings.push(`會取代這層目前的平面圖（來源 ${d.source}、圖上 ${d.machineCount} 台、${formatTime(d.updatedAt)} 更新）${d.active === true ? '' : '，匯入後會改成使用中'}。`);
+  }
+  const floorLabel = (id) => `${floorName(id)}（${id}）`;
+  const chips = [
+    ['圖上機台', plan.machines.length], ['對得上', cmp.matched.length],
+    ['主檔沒有', cmp.missing.length], ['主檔不使用', cmp.inactive.length], ['在別層', cmp.otherFloor.length],
+    ['這層有、圖上沒有', cmp.unplaced.length], ['大小 KB', Math.round(planFile.bytes / 1024)]
+  ].map(([label, n]) => `<span>${label}<b>${n}</b></span>`).join('')
+    + (errors.length ? `<span class="is-error">錯誤<b>${errors.length}</b></span>` : '');
+  const hint = errors.length
+    ? '有錯誤，不能匯入。'
+    : `確認沒問題，按「確定匯入」才會存到 ${floorLabel(floorId)}。圖上對不上主檔的機台不影響匯入：看板會畫成灰色虛線框，這層有、圖上沒有的列在「未配置位置」。`;
+
+  planPreview?.destroy();
+  planPreview = null;
+  $('pl-preview').innerHTML = `
+    ${doneText ? `<p class="imp-done">${escapeHtml(doneText)}</p>` : ''}
+    <div class="imp-sum">${chips}</div>
+    ${importListBox(`錯誤（${errors.length}）`, errors, { open: true, error: true })}
+    ${importListBox(`注意（${warnings.length}）`, warnings, { open: true })}
+    ${importListBox(`圖上有、設備主檔沒有（${cmp.missing.length}）`, cmp.missing.map((m) => `${m.id}　圖面型號 ${m.model || '—'}`), { open: true })}
+    ${importListBox(`圖上有、主檔設為不使用（${cmp.inactive.length}）`, cmp.inactive.map((m) => m.id), { open: true })}
+    ${importListBox(`圖上有、主檔在別層（${cmp.otherFloor.length}）`, cmp.otherFloor.map((m) => `${m.id}　主檔在 ${floorLabel(m.floorId)}`), { open: true })}
+    ${importListBox(`這層有、圖上沒有位置（${cmp.unplaced.length}）`, cmp.unplaced.map((m) => `${m.machineId}　${m.brand} ${m.model}`), { open: cmp.unplaced.length <= 20 })}
+    <p class="muted pl-map-note">預覽：藍灰色＝對得上這層的設備，灰色虛線框＝對不上的。</p>
+    <div id="pl-map" class="pl-map"></div>
+    <p class="imp-hint">${escapeHtml(hint)}</p>`;
+
+  // 預覽圖：對得上的畫藍灰色、寫主檔的型號；對不上的畫灰色虛線框
+  const byId = new Map(machines.map((m) => [m.machineId, m]));
+  const matched = new Set(cmp.matched.map((m) => m.id));
+  planPreview = createPlanView($('pl-map'), plan, {
+    nodeInfo: (id) => {
+      const m = byId.get(id);
+      if (!matched.has(id)) {
+        const why = !m ? '設備主檔沒有' : m.active !== true ? '主檔設為不使用' : `主檔在 ${floorLabel(m.floorId)}`;
+        return { kind: 'ghost', lines: {}, label: `${id}：${why}`, title: `${id}\n${why}` };
+      }
+      return {
+        kind: 'live', color: '#4C6A9A', fg: '#FFFFFF',
+        lines: { pn: m.model }, label: `${id} ${m.brand} ${m.model}`, title: `${id}\n${m.brand} ${m.model}`
+      };
+    },
+    onPick: () => {}
+  });
+
+  $('pl-run').textContent = planCurrent?.state === 'ok' ? '確定匯入（取代目前的平面圖）' : '確定匯入';
+  $('pl-run').hidden = errors.length > 0 || planCurrent?.state === 'loading' || planCurrent?.state === 'error';
+}
+
+// ---------- 寫入 ----------
+$('pl-run').addEventListener('click', async () => {
+  if (!planFile || planBusy) return;
+  const floorId = planFloorId();
+  const { plan } = planFile;
+  const source = `${planFile.name}${plan.source ? `（DXF：${plan.source}）` : ''}`.slice(0, 100);
+  lockPlan(true);
+  setBusy($('pl-run'), true, '匯入中…');
+  $('pl-error').textContent = '';
+  let wakeLock = null;
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* 不支援就算了 */ }
+  try {
+    if (!floors.some((f) => f.floorId === floorId && f.active === true)) throw new Error('這個樓層不在使用中，請重新選樓層');
+    await withTimeout(setDoc(doc(db, 'floorPlans', floorId), {
+      floorId,
+      source,
+      width: plan.W,
+      height: plan.H,
+      machineCount: plan.machines.length,
+      planData: planFile.text,
+      active: true,
+      ...stamp()
+    }), PLAN_WRITE_TIMEOUT_MS);
+    planDone = `匯入完成：${floorName(floorId)}（${floorId}）的平面圖，圖上 ${plan.machines.length} 台。到設備看板選「${floorName(floorId)}」就看得到。`;
+    toast('平面圖匯入完成');
+    planFile = null;
+  } catch (err) {
+    $('pl-error').textContent = err.code === 'timeout'
+      ? `網路太慢，${PLAN_WRITE_TIMEOUT_MS / 1000} 秒沒有回應。資料可能還在送：先不要關這一頁，等網路正常後按上面的「重新讀取」或重新打開「平面圖」確認有沒有存進去。`
+      : (err.code ? errorMessage(err) : err.message);
+  } finally {
+    try { await wakeLock?.release(); } catch { /* 已經釋放了 */ }
+    setBusy($('pl-run'), false);
+    lockPlan(false);
+    if (!planFile) {
+      planPreview?.destroy();
+      planPreview = null;
+      $('pl-filename').textContent = '';
+    }
+    renderPlanPreview();
+    loadPlanCurrent();
   }
 });
 </script>

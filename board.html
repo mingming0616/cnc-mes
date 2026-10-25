@@ -3,19 +3,23 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111724">
 <title>設備看板｜CNC MES</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="style.css?v=2">
-<!-- 看板專用樣式；board.css 改版時把 v 的數字加 1 -->
+<!-- board.css：機台面板、異動履歷、修正紀錄的樣式（跟機台頁共用）；改版時把 v 的數字加 1 -->
 <link rel="stylesheet" href="board.css?v=4">
+<!-- floorplan.css：功能⑧ 深色看板＋平面圖；改版時把 v 的數字加 1（master.html 也有引用） -->
+<link rel="stylesheet" href="floorplan.css?v=1">
 </head>
-<body>
+<body class="board-page">
 
 <header class="topbar">
   <a class="btn ghost" href="index.html">回首頁</a>
   <span class="topbar-title">設備看板</span>
+  <span id="clock" class="bd-clock"></span>
   <span id="conn" class="conn">連線中…</span>
 </header>
 
@@ -24,52 +28,111 @@
   <div id="state" class="state">載入中…</div>
 
   <section id="panel" hidden>
-    <div class="filters board-filters">
-      <label class="field"><span>單位</span><select id="f-dept"></select></label>
-      <label class="field"><span>樓層</span><select id="f-floor"></select></label>
+    <!-- 篩選：單位、樓層 -->
+    <div class="bd-bar">
+      <label class="bd-dept"><span>單位</span><select id="f-dept"></select></label>
+      <div id="f-floor" class="bd-seg is-wrap" role="group" aria-label="樓層"></div>
     </div>
-    <!-- 每種狀態各幾台 -->
-    <div id="summary" class="summary" aria-label="狀態統計"></div>
+
+    <!-- 每種狀態各幾台（點一張＝只亮那種狀態，再點一次取消） -->
+    <div id="summary" class="bd-kpis" aria-label="狀態統計"></div>
     <!-- 故障、品質異常的機台 -->
-    <div id="alerts" class="alerts" hidden></div>
-    <!-- 依樓層分區的機台卡片 -->
-    <div id="floors"></div>
+    <div id="alerts" class="bd-alerts" hidden></div>
+
+    <!-- 工具列：平面圖／卡片；平面圖才有的平面／立體、圖層、縮放 -->
+    <div id="tools" class="bd-tools" hidden>
+      <div id="view-seg" class="bd-seg" role="group" aria-label="顯示方式">
+        <button type="button" data-view="plan">平面圖</button>
+        <button type="button" data-view="cards">卡片</button>
+      </div>
+      <div id="map-tools" class="bd-maptools" hidden>
+        <div id="d3-seg" class="bd-seg" role="group" aria-label="平面或立體">
+          <button type="button" data-3d="0">平面</button>
+          <button type="button" data-3d="1">立體</button>
+        </div>
+        <div id="layer-chips" class="bd-chips" role="group" aria-label="圖層">
+          <button type="button" class="bd-chip" data-layer="aisle">通道</button>
+          <button type="button" class="bd-chip" data-layer="detail">設施細節</button>
+          <button type="button" class="bd-chip" data-layer="fire">消防</button>
+        </div>
+        <div class="bd-zoom">
+          <button type="button" id="zoom-out" class="bd-btn" aria-label="縮小">－</button>
+          <span id="zoom-label" class="bd-zoom-label">適合</span>
+          <button type="button" id="zoom-in" class="bd-btn" aria-label="放大">＋</button>
+          <button type="button" id="zoom-fit" class="bd-btn">適合寬度</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 平面圖載入中、讀不到時的訊息 -->
+    <div id="plan-msg" class="bd-msg" hidden></div>
+
+    <!-- 平面圖 -->
+    <section id="plan-sec" hidden>
+      <div id="plan-head" class="bd-planhead"></div>
+      <div id="map"></div>
+      <div id="legend" class="bd-legend"></div>
+    </section>
+
+    <!-- 卡片：卡片模式的機台、平面圖模式下「這層有、圖上沒有位置」的機台 -->
+    <div id="cards"></div>
   </section>
 </main>
 
 <!-- 機台面板（切換狀態）、異動履歷、修正紀錄的畫面，
-     由 status-panel.js、history.js 自動加到這裡（功能⑥搬成共用檔，機台頁也用同一份） -->
+     由 status-panel.js、history.js 自動加到這裡（跟機台頁共用同一份，維持淺色） -->
 
 <script type="module">
 // ============================================================
 // board.html：設備看板（所有角色都能看）
-//   讀：departments（狀態、原因、顏色）、floors、machines、settings/shifts 各讀一次
+//   功能⑧ 改成深色＋平面圖（照 v3.3 的方式）：
+//     ‧狀態統計卡：8 種狀態＋未設定＋目前生產中 %；點一張＝只亮那種狀態
+//     ‧有平面圖的樓層：機台畫在實際位置，顏色＝狀態；平面／立體、圖層、縮放
+//       這層有、圖上沒有位置的機台列在圖下面「未配置位置」；
+//       圖上有、這層主檔沒有的（主檔沒有、不使用、在別層）畫成灰色虛線框
+//     ‧沒有平面圖的樓層、選「全部」樓層、或切到「卡片」：用卡片顯示
+//     ‧選了單位：別單位的機台在圖上淡淡顯示，不算進統計
+//   讀：departments、floors、machines、settings/shifts 各讀一次；
+//       floorPlans 只讀目前這層（1 筆，2廠 2F 約 200 KB），第一次切到別層再讀那層
 //   即時監聽：machineStatus（有人改了，幾秒內自動更新）
-//   切換狀態：點卡片 → status-panel.js（功能⑥從這裡搬出去，機台頁也用同一份）
-//     一次寫入「目前狀態 machineStatus」＋「事件紀錄 machineEvents」
+//   切換狀態：點機台 → status-panel.js（跟機台頁共用）；異動履歷、修正紀錄 → history.js
 //   誰能切換：管理者（全部單位）、維護員（負責單位）；檢視只能看
-//   異動履歷（功能④）：面板「異動履歷」→ history.js，所有角色都能看
-//   修正紀錄（功能⑤）：履歷上那筆按「修正」→ history.js；管理者全部、維護員負責單位當班內
 // ============================================================
-// common.js、history.js、status-panel.js 改版時，把下面網址的 v 數字加 1
+// common.js、history.js、status-panel.js、floorplan.js 改版時，把下面網址的 v 數字加 1
 import {
   db, collection, getDocs, doc, getDoc, writeBatch, serverTimestamp, onSnapshot,
   query, where, orderBy, limit, startAfter, Timestamp, getDocFromServer, getDocsFromServer,
   requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime,
-  formatDuration, prodDateAndShift, colorStyle
+  formatDuration, prodDateAndShift, colorStyle, safeColor, textColorOn
 } from './common.js?v=5';
 import { setupHistory, openHistory, refreshHistory } from './history.js?v=3';
 import { setupStatusPanel, openStatusPanel, refreshStatusPanel } from './status-panel.js?v=1';
+import { createPlanView, planFromText } from './floorplan.js?v=1';
 
 const $ = (id) => document.getElementById(id);
-const FILTER_KEY = 'cncmes-board-filters';   // 記住這台裝置上次選的單位、樓層
+const FILTER_KEY = 'cncmes-board-filters-v2';   // 這台裝置上次選的單位、樓層
+const VIEW_KEY = 'cncmes-board-view';           // 這台裝置上次選的平面圖／卡片、平面／立體、圖層
+const UNSET = '__unset';                        // 統計卡「未設定」的代碼
+const ALERT_LONG_MS = 2 * 60 * 60 * 1000;       // 故障、品質異常超過 2 小時：閃快一點
+const PLAN_TIMEOUT_MS = 15000;                  // 平面圖 15 秒讀不到，就先用卡片
 
 let me = null;               // 登入者的人員資料
 let depts = [];              // 單位（含狀態、原因設定）
 let floors = [];             // 使用中的樓層
 let machines = [];           // 使用中的設備
+let allMachines = [];        // 全部設備（含不使用）：說明圖上的灰色虛線框是什麼原因
 let shiftSetting = null;     // 班別設定
 const statusMap = new Map(); // 設備編號 → { data: 目前狀態, pending: 是否還在同步 }
+const plans = new Map();     // 樓層代號 → { state: 'loading'|'ok'|'none'|'off'|'error', plan, meta, error }
+let planView = null;         // 目前畫在畫面上的平面圖
+let planViewFloor = '';      // planView 是哪一層的
+
+// 畫面選擇（單位、樓層、標示的狀態、顯示方式）
+const ui = {
+  dept: '', floor: '', highlight: null,
+  view: 'plan', view3d: false, layers: { aisle: true, detail: true, fire: true },
+  zoom: window.innerWidth >= 700 ? 'fit' : 2      // 平板、電腦先看整層；手機畫面小，平面圖先放大
+};
 
 // ---------- 小工具 ----------
 const naturalCompare = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'en', { numeric: true });
@@ -84,7 +147,10 @@ const reasonLabel = (deptId, status, code) =>
 const statusList = (deptId) => deptOf(deptId)?.statuses || [];
 // 這個狀態從什麼時候開始（毫秒）
 const sinceMs = (machineId) => statusMap.get(machineId)?.data?.statusSince?.toMillis?.() ?? Date.now();
-// 卡片顏色（colorStyle）、字色的算法在 common.js（功能⑥搬過去給機台頁共用）
+const store = {
+  get(key) { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } },
+  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* 無痕模式存不了也沒關係 */ } }
+};
 
 // 誰能切換這台的狀態
 function canEdit(machine) {
@@ -97,6 +163,33 @@ function setConn(online) {
   $('conn').classList.toggle('is-offline', !online);
 }
 
+// 等太久就當作失敗（網路斷了的時候，讀資料庫會一直等）
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'timeout' })), ms); })
+  ]).finally(() => clearTimeout(timer));
+}
+
+// 這台機目前的樣子（卡片、平面圖、統計共用）
+function liveOf(m) {
+  const entry = statusMap.get(m.machineId);
+  if (!entry) return { unset: true, code: UNSET };
+  const s = entry.data;
+  const def = statusDef(m.deptId, s.status);
+  const since = sinceMs(m.machineId);
+  const alert = def?.alert === true;
+  return {
+    unset: false, code: s.status, s, def, since, alert,
+    alertLong: alert && Date.now() - since >= ALERT_LONG_MS,
+    color: safeColor(def?.color),
+    label: def?.label || s.status,
+    reason: reasonLabel(m.deptId, s.status, s.reasonCode),
+    pending: entry.pending
+  };
+}
+
 // ---------- 開始：權限檢查、讀主檔、監聽狀態 ----------
 const ctx = await requireUser();
 if (ctx.error) {
@@ -106,6 +199,7 @@ if (ctx.error) {
   try {
     await loadMaster();
     setupFilters();
+    setupTools();
     setupHistoryModule();
     setupPanelModule();
     listenStatus();
@@ -126,35 +220,99 @@ async function loadMaster() {
   depts = deptSnap.docs.map((d) => ({ ...d.data(), id: d.id })).sort(bySortOrder('id'));
   floors = floorSnap.docs.map((d) => ({ ...d.data(), floorId: d.id }))
     .filter((f) => f.active === true).sort(bySortOrder('floorId'));
-  machines = machineSnap.docs.map((d) => ({ ...d.data(), machineId: d.id }))
-    .filter((m) => m.active === true).sort(bySortOrder('machineId'));
+  allMachines = machineSnap.docs.map((d) => ({ ...d.data(), machineId: d.id }));
+  machines = allMachines.filter((m) => m.active === true).sort(bySortOrder('machineId'));
   shiftSetting = shiftSnap.exists() ? shiftSnap.data() : null;
 }
 
-// 單位、樓層篩選（記住這台裝置上次的選擇）
+// ---------- 篩選：單位、樓層（記住這台裝置上次的選擇） ----------
 function setupFilters() {
-  let saved = {};
-  try { saved = JSON.parse(localStorage.getItem(FILTER_KEY) || '{}'); } catch { saved = {}; }
+  const saved = store.get(FILTER_KEY) || {};
   $('f-dept').innerHTML = '<option value="">全部單位</option>'
     + depts.map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
-  $('f-floor').innerHTML = '<option value="">全部樓層</option>'
-    + floors.map((f) => `<option value="${escapeHtml(f.floorId)}">${escapeHtml(f.name)}</option>`).join('');
-  const pick = (select, value) => {
-    if ([...select.options].some((o) => o.value === value)) select.value = value;
-  };
-  pick($('f-dept'), saved.dept ?? ((me.deptIds || [])[0] || ''));
-  pick($('f-floor'), saved.floor ?? '');
-  for (const id of ['f-dept', 'f-floor']) {
-    $(id).addEventListener('change', () => {
-      try {
-        localStorage.setItem(FILTER_KEY, JSON.stringify({ dept: $('f-dept').value, floor: $('f-floor').value }));
-      } catch { /* 無痕模式存不了也沒關係 */ }
-      render();
-    });
+  const deptWanted = saved.dept ?? ((me.deptIds || [])[0] || '');
+  ui.dept = depts.some((d) => d.id === deptWanted) ? deptWanted : '';
+  $('f-dept').value = ui.dept;
+
+  // 沒選過樓層：先顯示（這個單位）設備最多的那層
+  let floorWanted = saved.floor;
+  if (floorWanted === undefined) {
+    const count = (f) => machines.filter((m) => m.floorId === f.floorId && (!ui.dept || m.deptId === ui.dept)).length;
+    floorWanted = [...floors].sort((a, b) => count(b) - count(a))[0]?.floorId || '';
   }
+  ui.floor = floorWanted === '' || floors.some((f) => f.floorId === floorWanted) ? floorWanted : '';
+  $('f-floor').innerHTML = '<button type="button" data-floor="">全部</button>'
+    + floors.map((f) => `<button type="button" data-floor="${escapeHtml(f.floorId)}">${escapeHtml(f.name)}</button>`).join('');
+
+  $('f-dept').addEventListener('change', () => {
+    ui.dept = $('f-dept').value;
+    saveFilters();
+    render();
+  });
+  $('f-floor').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-floor]');
+    if (!button || button.dataset.floor === ui.floor) return;
+    ui.floor = button.dataset.floor;
+    saveFilters();
+    render();
+  });
 }
 
-// 即時監聽全部機台的目前狀態（只有有變動的那幾筆會再讀，不重複讀取）
+function saveFilters() {
+  store.set(FILTER_KEY, { dept: ui.dept, floor: ui.floor });
+}
+
+// ---------- 工具列：平面圖／卡片、平面／立體、圖層、縮放 ----------
+function setupTools() {
+  const saved = store.get(VIEW_KEY) || {};
+  // 沒選過：手機先用卡片，iPad、電腦先用平面圖
+  ui.view = saved.view === 'plan' || saved.view === 'cards'
+    ? saved.view : (window.matchMedia('(max-width: 640px)').matches ? 'cards' : 'plan');
+  ui.view3d = saved.view3d === true;
+  for (const k of Object.keys(ui.layers)) {
+    if (typeof saved.layers?.[k] === 'boolean') ui.layers[k] = saved.layers[k];
+  }
+  const saveView = () => store.set(VIEW_KEY, { view: ui.view, view3d: ui.view3d, layers: ui.layers });
+
+  $('view-seg').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-view]');
+    if (!button || button.dataset.view === ui.view) return;
+    ui.view = button.dataset.view;
+    saveView();
+    render();
+  });
+  $('d3-seg').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-3d]');
+    if (!button) return;
+    ui.view3d = button.dataset['3d'] === '1';
+    saveView();
+    planView?.set({ view3d: ui.view3d });
+    syncToolButtons();
+  });
+  $('layer-chips').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-layer]');
+    if (!button) return;
+    const k = button.dataset.layer;
+    ui.layers[k] = !ui.layers[k];
+    saveView();
+    planView?.set({ layers: { ...ui.layers } });
+    syncToolButtons();
+  });
+  $('zoom-in').addEventListener('click', () => { planView?.zoomStep(1); syncToolButtons(); });
+  $('zoom-out').addEventListener('click', () => { planView?.zoomStep(-1); syncToolButtons(); });
+  $('zoom-fit').addEventListener('click', () => { planView?.set({ zoom: 'fit' }); syncToolButtons(); });
+}
+
+function syncToolButtons() {
+  if (planView) ui.zoom = planView.options.zoom;
+  $('f-floor').querySelectorAll('[data-floor]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.floor === ui.floor)));
+  $('view-seg').querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.view === ui.view)));
+  $('d3-seg').querySelectorAll('[data-3d]').forEach((b) => b.setAttribute('aria-pressed', String((b.dataset['3d'] === '1') === ui.view3d)));
+  $('layer-chips').querySelectorAll('[data-layer]').forEach((b) => b.setAttribute('aria-pressed', String(ui.layers[b.dataset.layer])));
+  $('zoom-label').textContent = planView ? planView.zoomLabel() : '適合';
+}
+
+// ---------- 即時監聽全部機台的目前狀態（只有有變動的那幾筆會再讀，不重複讀取） ----------
 function listenStatus() {
   onSnapshot(collection(db, 'machineStatus'), { includeMetadataChanges: true }, (snap) => {
     statusMap.clear();
@@ -174,110 +332,303 @@ function listenStatus() {
   });
 }
 
-// ---------- 畫面 ----------
-function render() {
-  const deptId = $('f-dept').value;
-  const floorId = $('f-floor').value;
-  const list = machines.filter((m) => (!deptId || m.deptId === deptId) && (!floorId || m.floorId === floorId));
-  renderSummary(list);
-  renderAlerts(list);
-  renderFloors(list);
+// ---------- 平面圖：只讀選到的那層，讀過就留著（同一次開看板不重讀） ----------
+async function loadPlan(floorId, retry = false) {
+  const cur = plans.get(floorId);
+  if (cur && !(retry && cur.state === 'error')) return;
+  plans.set(floorId, { state: 'loading' });
+  if (retry) render();                 // 按「重試」：先顯示「平面圖載入中…」
+  let result;
+  try {
+    const snap = await withTimeout(getDoc(doc(db, 'floorPlans', floorId)), PLAN_TIMEOUT_MS);
+    if (!snap.exists()) {
+      result = { state: 'none' };
+    } else {
+      const meta = snap.data();
+      result = meta.active === true
+        ? { state: 'ok', plan: planFromText(meta.planData), meta: { ...meta, planData: undefined } }
+        : { state: 'off' };
+    }
+  } catch (err) {
+    const why = err.code === 'timeout' ? `網路太慢，${PLAN_TIMEOUT_MS / 1000} 秒讀不到` : (err.code ? errorMessage(err) : err.message);
+    result = { state: 'error', error: why };
+  }
+  plans.set(floorId, result);
+  if (planViewFloor === floorId) { planView?.destroy(); planView = null; planViewFloor = ''; }
+  render();
 }
 
+// ---------- 畫面 ----------
+function render() {
+  const list = machines.filter((m) => (!ui.dept || m.deptId === ui.dept) && (!ui.floor || m.floorId === ui.floor));
+  renderSummary(list);
+  renderAlerts(list);
+  renderBody(list);
+  syncToolButtons();
+}
+
+// 狀態統計卡：目前篩選的機台各幾台（別單位的不算）
 function renderSummary(list) {
-  const base = deptOf($('f-dept').value) || depts[0];
+  const base = deptOf(ui.dept) || depts[0];
   const counts = new Map();
-  let unset = 0;
   for (const m of list) {
-    const s = statusMap.get(m.machineId)?.data;
-    if (!s) { unset += 1; continue; }
-    counts.set(s.status, (counts.get(s.status) || 0) + 1);
+    const code = liveOf(m).code;
+    counts.set(code, (counts.get(code) || 0) + 1);
   }
+  const total = list.length;
+  const pct = (n) => (total ? `${Math.round((n / total) * 100)}%` : '0%');
+  const card = (code, label, n, dotClass, style, extraClass = '') => `
+    <button type="button" class="bd-kpi${n ? '' : ' is-zero'}${extraClass}" data-code="${escapeHtml(code)}"
+      aria-pressed="${ui.highlight === code}" style="${style}" title="點一下：只亮「${escapeHtml(label)}」的機台，再點一次取消">
+      <span class="bd-kpi-label"><span class="bd-dot${dotClass}"></span>${escapeHtml(label)}</span>
+      <span class="bd-kpi-value">${n}</span>
+      <span class="bd-kpi-sub">${pct(n)}</span>
+    </button>`;
+  const cards = (base?.statuses || []).map((s) => card(s.code, s.label, counts.get(s.code) || 0, '', colorStyle(s.color)));
+  const unset = counts.get(UNSET) || 0;
+  if (unset || ui.highlight === UNSET) cards.push(card(UNSET, '未設定', unset, ' is-unset', '', ' is-unset'));
   const running = counts.get('running') || 0;
-  const percent = list.length ? Math.round((running / list.length) * 100) : 0;
-  const chips = (base?.statuses || []).map((s) => {
-    const n = counts.get(s.code) || 0;
-    return `<span class="sum-chip${n ? '' : ' is-zero'}"><span class="sum-dot" style="${colorStyle(s.color)}"></span>${escapeHtml(s.label)}<b>${n}</b></span>`;
-  });
-  if (unset) chips.push(`<span class="sum-chip"><span class="sum-dot is-unset"></span>未設定<b>${unset}</b></span>`);
-  $('summary').innerHTML = `<span class="sum-total">共 ${list.length} 台，目前生產中 ${percent}%</span>${chips.join('')}`;
+  // 「目前生產中 %」只是這一刻的比例，不是稼動率（稼動率第五階段用事件紀錄算）
+  cards.push(`
+    <div class="bd-kpi is-util" title="目前生產中 ＝ 生產中台數 ÷ 總台數（這一刻的比例，不是稼動率）">
+      <span class="bd-kpi-label">目前生產中</span>
+      <span class="bd-kpi-value">${pct(running)}</span>
+      <span class="bd-kpi-sub">${running} / ${total} 台</span>
+    </div>`);
+  $('summary').innerHTML = cards.join('');
 }
 
 function renderAlerts(list) {
   const items = list
-    .filter((m) => {
-      const s = statusMap.get(m.machineId)?.data;
-      return s && statusDef(m.deptId, s.status)?.alert === true;
-    })
-    .sort((a, b) => sinceMs(a.machineId) - sinceMs(b.machineId));   // 停最久的排前面
+    .map((m) => ({ m, live: liveOf(m) }))
+    .filter((x) => x.live.alert)
+    .sort((a, b) => a.live.since - b.live.since);   // 停最久的排前面
   $('alerts').hidden = items.length === 0;
   if (!items.length) { $('alerts').innerHTML = ''; return; }
-  $('alerts').innerHTML = `<span class="alerts-title">異常 ${items.length} 台</span>` + items.map((m) => {
-    const s = statusMap.get(m.machineId).data;
-    const def = statusDef(m.deptId, s.status);
-    const reason = reasonLabel(m.deptId, s.status, s.reasonCode);
-    const since = sinceMs(m.machineId);
-    return `<button type="button" class="alert-chip" data-id="${escapeHtml(m.machineId)}" style="${colorStyle(def?.color)}">`
-      + `${escapeHtml(m.machineId)} ${escapeHtml(def?.label || s.status)}${reason ? `（${escapeHtml(reason)}）` : ''} `
-      + `<span class="js-dur" data-since="${since}">${formatDuration(Date.now() - since)}</span></button>`;
-  }).join('');
+  $('alerts').innerHTML = `<span class="bd-alerts-title">異常 ${items.length} 台</span>` + items.map(({ m, live }) => (
+    `<button type="button" class="bd-alert-chip" data-id="${escapeHtml(m.machineId)}" style="${colorStyle(live.color)}">`
+    + `${escapeHtml(m.machineId)} ${escapeHtml(live.label)}${live.reason ? `（${escapeHtml(live.reason)}）` : ''} `
+    + `<span class="js-dur" data-since="${live.since}">${formatDuration(Date.now() - live.since)}</span></button>`
+  )).join('');
 }
 
-function renderFloors(list) {
+// 要用平面圖還是卡片
+function renderBody(list) {
+  const floorId = ui.floor;
+  if (floorId && !plans.has(floorId)) loadPlan(floorId);
+  const p = floorId ? plans.get(floorId) : null;
+  const hasPlanToShow = !!p && ['ok', 'loading', 'error'].includes(p.state);
+  const mode = !floorId || ui.view !== 'plan' || !p ? 'cards'
+    : p.state === 'ok' ? 'plan' : p.state === 'loading' ? 'loading' : 'cards';
+
+  // 工具列：這層有平面圖才出現「平面圖／卡片」
+  $('tools').hidden = !hasPlanToShow;
+  $('map-tools').hidden = mode !== 'plan';
+
+  // 訊息：載入中、讀不到
+  const msg = $('plan-msg');
+  if (mode === 'loading') {
+    msg.className = 'bd-msg';
+    msg.textContent = '平面圖載入中…';
+    msg.hidden = false;
+  } else if (p?.state === 'error' && ui.view === 'plan') {
+    msg.className = 'bd-msg is-error';
+    msg.innerHTML = `<span>讀不到平面圖（${escapeHtml(p.error)}），先用卡片顯示。</span>`
+      + '<button type="button" id="plan-retry" class="bd-btn">重試</button>';
+    msg.hidden = false;
+  } else {
+    msg.hidden = true;
+  }
+
+  if (mode === 'plan') {
+    renderPlan(floorId, p, list);
+  } else {
+    $('plan-sec').hidden = true;
+    if (mode === 'loading') { $('cards').innerHTML = ''; return; }
+    renderCards(list);
+  }
+}
+
+// ---------- 平面圖模式 ----------
+function renderPlan(floorId, p, list) {
+  if (planViewFloor !== floorId || !planView) {
+    planView?.destroy();
+    planView = createPlanView($('map'), p.plan, {
+      nodeInfo, onPick, view3d: ui.view3d, layers: { ...ui.layers }, zoom: ui.zoom
+    });
+    planViewFloor = floorId;
+  }
+  planView.update({ highlight: !!ui.highlight });
+  renderLegend();
+  const meta = p.meta || {};
+  $('plan-head').innerHTML = `<span class="bd-planname">${escapeHtml(floorName(floorId))}</span>`
+    + `<span class="bd-planmeta">平面圖來源：${escapeHtml(meta.source || '—')}・${formatTime(meta.updatedAt)} 更新</span>`;
+  $('plan-sec').hidden = false;
+
+  // 這層有（符合單位篩選）、圖上沒有位置的機台：列在圖下面
+  const onPlan = new Set(p.plan.machines.map((m) => m.id));
+  const unplaced = list.filter((m) => !onPlan.has(m.machineId));
+  $('cards').innerHTML = unplaced.length
+    ? section('未配置位置', unplaced, '這層的設備，平面圖上還沒有位置（例：新機還沒畫進圖面）', true)
+    : '';
+}
+
+// 平面圖上每台機要怎麼畫（給 floorplan.js 用）
+function nodeInfo(id) {
+  const m = machineOf(id);
+  if (!m || m.floorId !== ui.floor) {
+    const any = allMachines.find((x) => x.machineId === id);
+    const why = !any ? '設備主檔沒有這台'
+      : any.active !== true ? '這台在設備主檔設為「不使用」'
+        : `這台在設備主檔屬於 ${floorName(any.floorId)}`;
+    return { kind: 'ghost', lines: {}, label: `${id}：${why}`, title: `${id}\n${why}`, why };
+  }
+  const other = !!ui.dept && m.deptId !== ui.dept;
+  const live = liveOf(m);
+  const head = `${id}　${m.brand} ${m.model}${other ? `（${deptOf(m.deptId)?.name || m.deptId}）` : ''}`;
+  if (live.unset) {
+    return {
+      kind: 'unset', other, match: ui.highlight === UNSET,
+      lines: { sub: '未設定' }, label: `${id} 未設定`, title: `${head}\n未設定（還沒切過狀態）`
+    };
+  }
+  const s = live.s;
+  const dur = formatDuration(Date.now() - live.since);
+  const part = [s.partNo, s.opNo].filter(Boolean).join(' ');
+  return {
+    kind: 'live', other, pending: live.pending, match: ui.highlight === s.status,
+    color: live.color, fg: textColorOn(live.color), alert: live.alert, alertLong: live.alertLong,
+    // 機台上的字：編號、料號；生產中寫製程，無排產不寫，其他狀態寫持續時間；有原因寫原因
+    lines: { pn: s.partNo, sub: s.status === 'running' ? s.opNo : (s.status === 'idle' ? '' : dur), note: live.reason },
+    label: `${id} ${live.label}`,
+    title: `${head}\n${live.label}${live.reason ? `：${live.reason}` : ''}（已持續 ${dur}）`
+      + `${part ? `\n料號／製程：${part}` : ''}${s.note ? `\n備註：${s.note}` : ''}`
+      + `${s.updatedByName ? `\n${s.updatedByName} ${formatTime(s.updatedAt)}` : ''}`
+  };
+}
+
+// 點平面圖上的機台：打開面板；灰色虛線框說明原因
+function onPick(id, kind) {
+  if (kind === 'ghost') {
+    toast(nodeInfo(id).why || `${id} 不在這層`, 'error');
+    return;
+  }
+  openStatusPanel(id);
+}
+
+function renderLegend() {
+  const base = deptOf(ui.dept) || depts[0];
+  $('legend').innerHTML = (base?.statuses || [])
+    .map((s) => `<span class="lg" style="${colorStyle(s.color)}"><span class="sw"></span>${escapeHtml(s.label)}</span>`).join('')
+    + '<span class="lg"><span class="sw is-unset"></span>未設定</span>'
+    + '<span class="lg"><span class="sw is-ghost"></span>圖上有、這層主檔沒有</span>'
+    + '<span class="lg"><svg width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="#e0b11a" stroke-width="2" stroke-dasharray="6 4"/></svg>預定通道</span>'
+    + '<span class="lg"><svg width="24" height="8" aria-hidden="true"><line x1="0" y1="4" x2="24" y2="4" stroke="#ef4444" stroke-width="2"/></svg>消防設施</span>'
+    + '<span>｜外框閃爍＝故障、品質異常，閃得快＝超過 2 小時｜點上方統計卡可只亮那種狀態</span>';
+}
+
+// ---------- 卡片模式 ----------
+function renderCards(list) {
+  const shown = ui.highlight ? list.filter((m) => liveOf(m).code === ui.highlight) : list;
   const byFloor = new Map();
-  for (const m of list) {
+  for (const m of shown) {
     if (!byFloor.has(m.floorId)) byFloor.set(m.floorId, []);
     byFloor.get(m.floorId).push(m);
   }
-  const section = (title, ms) => `
-    <section class="floor-sec">
-      <h2 class="floor-title">${escapeHtml(title)}<span class="floor-count">${ms.length} 台</span></h2>
-      <div class="m-grid">${ms.map(cardHtml).join('')}</div>
-    </section>`;
   const html = floors.filter((f) => byFloor.has(f.floorId)).map((f) => section(f.name, byFloor.get(f.floorId)));
-  const orphans = list.filter((m) => !floors.some((f) => f.floorId === m.floorId));
+  const orphans = shown.filter((m) => !floors.some((f) => f.floorId === m.floorId));
   if (orphans.length) html.push(section('未指定樓層', orphans));
-  $('floors').innerHTML = html.join('') || '<p class="empty-board">沒有符合條件的設備。</p>';
+  const empty = ui.highlight ? '沒有這種狀態的機台。再點一次上面的統計卡可以取消。' : '沒有符合條件的設備。';
+  $('cards').innerHTML = html.join('') || `<p class="bd-empty">${empty}</p>`;
 }
 
-function cardHtml(m) {
+// 一區卡片；dimByHighlight：平面圖模式下，不符合標示狀態的變淡（不是藏起來）
+function section(title, ms, note = '', dimByHighlight = false) {
+  return `
+    <section class="bd-sec">
+      <h2 class="bd-sec-title">${escapeHtml(title)}<span class="bd-sec-count">${ms.length} 台</span>`
+    + `${note ? `<span class="bd-sec-note">${escapeHtml(note)}</span>` : ''}</h2>
+      <div class="bd-grid">${ms.map((m) => cardHtml(m, dimByHighlight)).join('')}</div>
+    </section>`;
+}
+
+function cardHtml(m, dimByHighlight) {
   const id = escapeHtml(m.machineId);
-  const entry = statusMap.get(m.machineId);
-  if (!entry) {
-    return `<button type="button" class="m-card m-unset" data-id="${id}">`
-      + `<span class="m-id">${id}</span><span class="m-status">未設定</span>`
-      + `<span class="m-model">${escapeHtml(m.model)}</span></button>`;
+  const live = liveOf(m);
+  const dim = dimByHighlight && ui.highlight && live.code !== ui.highlight ? ' is-dimmed' : '';
+  if (live.unset) {
+    return `<button type="button" class="bd-card is-unset${dim}" data-id="${id}">`
+      + `<span class="c-id">${id}</span><span class="c-status">未設定</span>`
+      + `<span class="c-model">${escapeHtml(m.model)}</span></button>`;
   }
-  const s = entry.data;
-  const def = statusDef(m.deptId, s.status);
-  const reason = reasonLabel(m.deptId, s.status, s.reasonCode);
+  const s = live.s;
   const part = [s.partNo, s.opNo].filter(Boolean).join(' ');
-  const since = sinceMs(m.machineId);
-  return `<button type="button" class="m-card${def?.alert ? ' m-alert' : ''}${entry.pending ? ' m-pending' : ''}" data-id="${id}" style="${colorStyle(def?.color)}">`
-    + `<span class="m-id">${id}</span>`
-    + `<span class="m-status">${escapeHtml(def?.label || s.status)}</span>`
-    + (reason ? `<span class="m-reason">${escapeHtml(reason)}</span>` : '')
-    + `<span class="m-time js-dur" data-since="${since}">${formatDuration(Date.now() - since)}</span>`
-    + (part ? `<span class="m-part">${escapeHtml(part)}</span>` : '')
+  const edge = isDark(live.color) ? ' is-edge' : '';
+  return `<button type="button" class="bd-card${live.alert ? ' is-alert' : ''}${live.alertLong ? ' is-long' : ''}${edge}${live.pending ? ' is-pending' : ''}${dim}"`
+    + ` data-id="${id}" data-since="${live.since}" data-alert="${live.alert ? 1 : 0}" style="${colorStyle(live.color)}">`
+    + `<span class="c-id">${id}</span>`
+    + `<span class="c-status">${escapeHtml(live.label)}</span>`
+    + (live.reason ? `<span class="c-reason">${escapeHtml(live.reason)}</span>` : '')
+    + `<span class="c-time js-dur" data-since="${live.since}">${formatDuration(Date.now() - live.since)}</span>`
+    + (part ? `<span class="c-part">${escapeHtml(part)}</span>` : '')
     + '</button>';
 }
 
-// 持續時間每 30 秒更新一次（只改畫面上的字，不會讀資料庫）
+// 深色（例：停用的深灰）在深色底上看不清楚：卡片加一圈亮邊（跟平面圖的判斷一樣）
+function isDark(hex) {
+  const n = parseInt(hex.slice(1), 16);
+  const r = ((n >> 16) & 255) / 255, g = ((n >> 8) & 255) / 255, b = (n & 255) / 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  const l = (max + min) / 2;
+  const s = max === min ? 0 : (max - min) / (1 - Math.abs(2 * l - 1));
+  return l < 0.45 || (s < 0.2 && l < 0.6);
+}
+
+// ---------- 點擊 ----------
+$('cards').addEventListener('click', (event) => {
+  const card = event.target.closest('.bd-card');
+  if (card) openStatusPanel(card.dataset.id);
+});
+$('alerts').addEventListener('click', (event) => {
+  const chip = event.target.closest('.bd-alert-chip');
+  if (chip) openStatusPanel(chip.dataset.id);
+});
+$('summary').addEventListener('click', (event) => {
+  const kpi = event.target.closest('.bd-kpi[data-code]');
+  if (!kpi) return;
+  ui.highlight = ui.highlight === kpi.dataset.code ? null : kpi.dataset.code;
+  render();
+});
+$('plan-msg').addEventListener('click', (event) => {
+  if (event.target.closest('#plan-retry') && ui.floor) loadPlan(ui.floor, true);
+});
+
+// ---------- 時鐘、持續時間（只改畫面上的字，不會讀資料庫） ----------
+const clockFormat = new Intl.DateTimeFormat('zh-TW', {
+  timeZone: 'Asia/Taipei', month: '2-digit', day: '2-digit', weekday: 'short', hour: '2-digit', minute: '2-digit', hour12: false
+});
+function tickClock() {
+  const now = new Date();
+  const parts = {};
+  clockFormat.formatToParts(now).forEach((p) => { parts[p.type] = p.value; });
+  const { shiftId } = prodDateAndShift(now, shiftSetting);
+  const shift = (shiftSetting?.shifts || []).find((s) => s.id === shiftId);
+  $('clock').textContent = `${parts.month}/${parts.day}（${String(parts.weekday).replace('週', '')}）${parts.hour}:${parts.minute}${shift ? `　${shift.name}` : ''}`;
+}
+tickClock();
+setInterval(tickClock, 15000);
+
+// 持續時間每 30 秒更新一次；超過 2 小時的故障、品質異常改成閃快
 setInterval(() => {
   const now = Date.now();
   document.querySelectorAll('.js-dur').forEach((el) => {
     el.textContent = formatDuration(now - Number(el.dataset.since));
   });
+  document.querySelectorAll('.bd-card[data-alert="1"]').forEach((el) => {
+    el.classList.toggle('is-long', now - Number(el.dataset.since) >= ALERT_LONG_MS);
+  });
+  planView?.update();
 }, 30000);
-
-$('floors').addEventListener('click', (event) => {
-  const card = event.target.closest('.m-card');
-  if (card) openStatusPanel(card.dataset.id);
-});
-$('alerts').addEventListener('click', (event) => {
-  const chip = event.target.closest('.alert-chip');
-  if (chip) openStatusPanel(chip.dataset.id);
-});
 
 // ---------- 異動履歷（功能④，畫面和讀取在 history.js） ----------
 
