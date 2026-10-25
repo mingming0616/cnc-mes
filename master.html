@@ -9,6 +9,29 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
 <!-- ?v=2：style.css 有改版時把數字加 1，瀏覽器才會抓新的樣式 -->
 <link rel="stylesheet" href="style.css?v=2">
+<style>
+/* 功能⑦「匯入設備」的樣式：只有這頁用，寫在這裡，style.css 和其他頁的版本號都不用動 */
+.imp-pick { position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 14px; }
+.imp-file { position: absolute; width: 1px; height: 1px; opacity: 0; overflow: hidden; }
+.imp-help { margin: 0 0 12px; }
+.imp-help > summary, .imp-box > summary { min-height: 48px; display: flex; align-items: center; cursor: pointer; font-weight: 600; list-style: none; }
+.imp-help > summary::-webkit-details-marker, .imp-box > summary::-webkit-details-marker { display: none; }
+.imp-help > summary::before, .imp-box > summary::before { content: "▸"; width: 1.2em; }
+.imp-help[open] > summary::before, .imp-box[open] > summary::before { content: "▾"; }
+.imp-help ul { margin: 0 0 8px; padding-left: 22px; font-size: 15px; }
+.imp-sum { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 12px; }
+.imp-sum span { padding: 3px 12px; border: 1px solid var(--rule-strong); border-radius: 999px; background: var(--sunk); font-size: 15px; }
+.imp-sum b { font-family: var(--font-code); font-size: 19px; margin-left: 4px; }
+.imp-sum .is-error { border-color: var(--error); color: var(--error); }
+.imp-box { border: 1px solid var(--rule); border-radius: var(--radius); margin: 0 0 10px; }
+.imp-box > summary { padding: 0 14px; }
+.imp-box ul { margin: 0; padding: 0 14px 12px 34px; max-height: 360px; overflow-y: auto; font-size: 15px; }
+.imp-box li + li { margin-top: 4px; }
+.imp-box.is-error { border: 2px solid var(--error); }
+.imp-box.is-error > summary { color: var(--error); }
+.imp-done { padding: 10px 14px; margin: 0 0 12px; border: 2px solid var(--ink); border-radius: var(--radius); background: var(--sunk); font-weight: 600; }
+.imp-hint { font-weight: 600; }
+</style>
 </head>
 <body>
 
@@ -40,6 +63,8 @@
       <div class="toolbar">
         <div class="toolbar" style="margin: 0">
           <button id="btn-add-machine" class="btn primary" type="button">新增設備</button>
+          <!-- 功能⑦：一次匯入很多台（CSV 檔） -->
+          <button id="btn-import" class="btn" type="button">匯入設備</button>
           <!-- 功能⑥：印機台的 QR 標籤（帶入下面選的單位、樓層） -->
           <a id="btn-labels" class="btn" href="labels.html">列印 QR 標籤</a>
         </div>
@@ -79,6 +104,35 @@
           <button id="mf-save" class="btn primary" type="submit">儲存</button>
         </div>
       </form>
+
+      <!-- ========== 功能⑦：匯入設備（CSV 檔） ========== -->
+      <section id="import-card" class="sheet" hidden>
+        <h2>匯入設備</h2>
+        <p class="muted notes">選一個設備清單檔（CSV），會先檢查並預覽，按「確定匯入」才寫入。
+已經有的設備：檔案裡空白的欄位維持原樣，只改有填的欄位。
+系統有、檔案裡沒有的設備不會動；檔案裡的新樓層會一起建立。</p>
+        <details class="imp-help">
+          <summary>檔案格式說明</summary>
+          <ul>
+            <li>第 1 行是欄位名稱：設備編號、單位、樓層代號、樓層名稱、設備類別、廠牌、型號、排列順序、使用中、備註（順序不限，沒用到的欄位可以不放）。</li>
+            <li>新設備一定要填：設備編號、單位（填「銑床課」或代號）、樓層代號、設備類別、廠牌、型號。</li>
+            <li>樓層代號系統還沒有的話，要填樓層名稱，匯入時會一起建立。</li>
+            <li>排列順序空白：新設備自動排在那層最後。使用中填「是」或「否」，空白＝是。</li>
+            <li>用 Excel 編輯的話，請另存成「CSV UTF-8」。</li>
+          </ul>
+        </details>
+        <div class="imp-pick">
+          <label class="btn" for="imp-file">選擇檔案</label>
+          <input id="imp-file" class="imp-file" type="file" accept=".csv,text/csv,text/comma-separated-values,text/plain">
+          <span id="imp-filename" class="muted"></span>
+        </div>
+        <div id="imp-preview"></div>
+        <p id="imp-error" class="form-error" role="alert"></p>
+        <div class="row-actions">
+          <button id="imp-close" class="btn" type="button">關閉</button>
+          <button id="imp-run" class="btn primary" type="button" hidden>確定匯入</button>
+        </div>
+      </section>
 
       <!-- 打字時的建議清單（從已經存在的設備整理出來） -->
       <datalist id="dl-category"></datalist>
@@ -131,9 +185,10 @@
 //   規則：不能刪除，不用了就關掉「使用中」；編號建立後不能改
 //   用詞：主檔關掉「使用中」→ 顯示「不使用」
 //        （跟機台狀態的「停用」不同，狀態的停用是借出、安裝驗收等暫時不能生產）
+//   功能⑦：設備分頁加「匯入設備」，用 CSV 檔一次新增或修改很多台（程式在檔案最下面）
 // ============================================================
 import {
-  db, collection, getDocs, doc, getDoc, setDoc, serverTimestamp,
+  db, collection, getDocs, getDocsFromServer, doc, getDoc, setDoc, serverTimestamp,
   requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime
 } from './common.js';
 
@@ -536,6 +591,450 @@ $('floor-form').addEventListener('submit', async (event) => {
     fail(errorMessage(err));
   } finally {
     setBusy($('ff-save'), false);
+  }
+});
+
+// ==================== 功能⑦：匯入設備（CSV 檔） ====================
+// 流程：選檔 → 檢查並預覽（這時還沒寫入）→ 按「確定匯入」→ 先建新樓層、再一台一台寫設備
+// 規則：
+//   ‧新設備：單位、樓層代號、設備類別、廠牌、型號一定要填；排列順序空白就排在那層最後
+//   ‧已經有的設備：空白的欄位維持原樣（例：只填「使用中＝否」，就只把它改成不使用）
+//   ‧系統有、檔案沒有的設備不會動；檔案裡系統還沒有的樓層會建立（要填樓層名稱）
+//   ‧有任何錯誤就整批不寫，修正檔案後再選一次
+//   ‧一台一台寫，每台都經過安全規則檢查；中途失敗，按「確定匯入」再試，已寫入的會變成「不變」
+
+// CSV 第 1 行的欄位名稱 → 程式用的名稱
+const IMPORT_HEADERS = {
+  machineId: '設備編號', dept: '單位', floorId: '樓層代號', floorName: '樓層名稱', category: '設備類別',
+  brand: '廠牌', model: '型號', sortOrder: '排列順序', active: '使用中', note: '備註'
+};
+// 預覽「更新」時顯示的欄位名稱
+const CHANGE_LABELS = {
+  deptId: '單位', floorId: '樓層', category: '類別', brand: '廠牌', model: '型號',
+  sortOrder: '排列順序', active: '使用中', note: '備註'
+};
+const YES_WORDS = ['是', 'Y', 'YES', 'TRUE', '1', '使用中', '使用'];
+const NO_WORDS = ['否', 'N', 'NO', 'FALSE', '0', '不使用'];
+const IMPORT_MAX_BYTES = 2 * 1024 * 1024;   // 2 MB：200 台的清單大約 15 KB，太大多半是選錯檔
+const WRITE_TIMEOUT_MS = 20000;             // 一筆 20 秒沒回應就當作網路斷了
+
+let importTable = null;    // 選好的檔案內容（已切成表格）
+let importFileName = '';
+let importPlan = null;     // 最近一次的檢查結果
+let importing = false;     // 正在寫入：不能關閉、不能換檔
+
+// 檔案內容轉文字：先當 UTF-8；不是的話多半是 Windows Excel 存的（Big5）
+function decodeCsv(buffer) {
+  try {
+    return new TextDecoder('utf-8', { fatal: true }).decode(buffer);
+  } catch { /* 不是 UTF-8，往下試 Big5 */ }
+  try {
+    return new TextDecoder('big5').decode(buffer);
+  } catch {
+    return null;
+  }
+}
+
+// 把 CSV 文字切成表格；處理引號、欄位裡的逗號和換行（Excel、Numbers 匯出的格式）
+function parseCsv(text) {
+  const clean = text.replace(/^\uFEFF/, '');
+  const firstLine = clean.split(/\r?\n/, 1)[0] || '';
+  const sep = !firstLine.includes(',') && firstLine.includes('\t') ? '\t' : ',';   // 也接受用 Tab 分隔
+  const rows = [];
+  let row = [];
+  let cell = '';
+  let quoted = false;
+  for (let i = 0; i < clean.length; i += 1) {
+    const c = clean[i];
+    if (quoted) {
+      if (c === '"' && clean[i + 1] === '"') { cell += '"'; i += 1; }
+      else if (c === '"') quoted = false;
+      else cell += c;
+    } else if (c === '"' && cell === '') {
+      quoted = true;
+    } else if (c === sep) {
+      row.push(cell); cell = '';
+    } else if (c === '\n' || c === '\r') {
+      if (c === '\r' && clean[i + 1] === '\n') i += 1;
+      row.push(cell); rows.push(row);
+      row = []; cell = '';
+    } else {
+      cell += c;
+    }
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows;
+}
+
+function parseYesNo(value) {
+  const v = value.toUpperCase();
+  if (YES_WORDS.includes(v)) return true;
+  if (NO_WORDS.includes(v)) return false;
+  return null;
+}
+
+// 檢查檔案內容，算出要寫入什麼（不寫資料庫）
+//   cur：目前資料庫裡的 { machines, floors, depts }
+function buildImportPlan(table, cur) {
+  const plan = { rowCount: 0, newFloors: [], creates: [], updates: [], unchanged: 0, untouched: 0, errors: [], warnings: [] };
+  const header = (table[0] || []).map((h) => String(h ?? '').replace(/^\uFEFF/, '').trim());
+  const col = {};
+  for (const [key, label] of Object.entries(IMPORT_HEADERS)) {
+    const index = header.indexOf(label);
+    if (index >= 0) col[key] = index;
+  }
+  if (col.machineId === undefined) {
+    plan.errors.push('第 1 行要是欄位名稱，而且要有「設備編號」。如果是 Excel 存的檔，請另存成「CSV UTF-8」再試一次。');
+    return plan;
+  }
+  const unknown = header.filter((h) => h && !Object.values(IMPORT_HEADERS).includes(h));
+  if (unknown.length) plan.warnings.push(`看不懂的欄位，不會匯入：${unknown.join('、')}`);
+
+  const machineMap = new Map(cur.machines.map((m) => [m.machineId, m]));
+  const floorMap = new Map(cur.floors.map((f) => [f.floorId, f]));
+  const findDept = (value) => cur.depts.find((d) => d.id === value || d.id.toLowerCase() === value.toLowerCase() || (d.name || '') === value);
+
+  // 先整理每一行（跳過整行空白）
+  const lines = [];
+  table.slice(1).forEach((cells, index) => {
+    if (cells.every((c) => String(c ?? '').trim() === '')) return;
+    const get = (key) => (col[key] === undefined ? '' : String(cells[col[key]] ?? '').trim());
+    lines.push({ line: index + 2, get });
+  });
+  plan.rowCount = lines.length;
+  if (!lines.length) {
+    plan.errors.push('檔案裡沒有資料（第 2 行以後是空的）。');
+    return plan;
+  }
+
+  // 新樓層的名稱：用第一次出現的那個
+  const newFloorNames = new Map();
+  for (const { get } of lines) {
+    const fid = normalizeCode(get('floorId'));
+    const fname = get('floorName');
+    if (fid && fname && !floorMap.has(fid) && !newFloorNames.has(fid)) newFloorNames.set(fid, fname);
+  }
+
+  const seen = new Map();          // 設備編號 → 第幾行（抓重複）
+  const floorWarned = new Set();
+  const items = [];
+  for (const { line, get } of lines) {
+    const errs = [];
+    const id = normalizeCode(get('machineId'));
+    if (!id) { plan.errors.push(`第 ${line} 行：設備編號空白`); continue; }
+    if (!CODE_PATTERN.test(id)) { plan.errors.push(`第 ${line} 行：設備編號「${id}」格式不對（英文大寫、數字和「-」，2～12 碼）`); continue; }
+    if (seen.has(id)) { plan.errors.push(`第 ${line} 行：設備編號 ${id} 重複（第 ${seen.get(id)} 行也有）`); continue; }
+    seen.set(id, line);
+    const old = machineMap.get(id) || null;
+    const need = (label) => errs.push(`${label}空白（新設備一定要填）`);
+    const data = { machineId: id };
+
+    // 單位：填代號（milling）或名稱（銑床課）都可以
+    const deptText = get('dept');
+    if (deptText) {
+      const dept = findDept(deptText);
+      if (!dept) errs.push(`找不到單位「${deptText}」`);
+      else if (dept.active === false) errs.push(`單位「${deptText}」已停用`);
+      else data.deptId = dept.id;
+    } else if (old) data.deptId = old.deptId;
+    else need('單位');
+
+    // 樓層
+    const floorText = normalizeCode(get('floorId'));
+    if (floorText) {
+      if (!CODE_PATTERN.test(floorText)) errs.push(`樓層代號「${floorText}」格式不對`);
+      else if (floorMap.has(floorText)) {
+        data.floorId = floorText;
+        const fname = get('floorName');
+        const floor = floorMap.get(floorText);
+        if (fname && fname !== floor.name && !floorWarned.has(floorText)) {
+          floorWarned.add(floorText);
+          plan.warnings.push(`樓層 ${floorText} 已經有了，名稱維持「${floor.name}」，檔案寫的「${fname}」不會套用`);
+        }
+      } else if (!newFloorNames.has(floorText)) {
+        errs.push(`樓層 ${floorText} 系統還沒有，請在「樓層名稱」填名稱`);
+      } else if (newFloorNames.get(floorText).length > 20) {
+        errs.push(`樓層 ${floorText} 的名稱超過 20 個字`);
+      } else data.floorId = floorText;
+    } else if (old) data.floorId = old.floorId;
+    else need('樓層代號');
+
+    // 設備類別、廠牌、型號（1～30 字）
+    for (const [key, label] of [['category', '設備類別'], ['brand', '廠牌'], ['model', '型號']]) {
+      const value = get(key);
+      if (value) {
+        if (value.length > 30) errs.push(`${label}超過 30 個字`);
+        else data[key] = value;
+      } else if (old) data[key] = old[key] ?? '';
+      else need(label);
+    }
+
+    // 排列順序：空白＝新設備排在那層最後（下面再算），已有的設備維持原樣
+    const sortText = get('sortOrder');
+    if (sortText) {
+      if (!/^\d{1,4}$/.test(sortText)) errs.push(`排列順序「${sortText}」要是 0～9999 的整數`);
+      else data.sortOrder = Number.parseInt(sortText, 10);
+    } else if (old) data.sortOrder = old.sortOrder ?? 0;
+    else data.sortOrder = null;
+
+    // 使用中：空白＝新設備「是」、已有的維持原樣
+    const activeText = get('active');
+    if (activeText) {
+      const yes = parseYesNo(activeText);
+      if (yes === null) errs.push(`「使用中」要填「是」或「否」（檔案寫的是「${activeText}」）`);
+      else data.active = yes;
+    } else data.active = old ? old.active === true : true;
+
+    // 備註（0～100 字）：空白＝新設備沒有備註、已有的維持原樣
+    const noteText = get('note');
+    if (noteText) {
+      if (noteText.length > 100) errs.push('備註超過 100 個字');
+      else data.note = noteText;
+    } else data.note = old ? (old.note ?? '') : '';
+
+    // 使用中的設備不能放在「不使用」的樓層
+    const floorOfData = floorMap.get(data.floorId);
+    if (!errs.length && data.active && floorOfData && floorOfData.active !== true) {
+      errs.push(`樓層 ${data.floorId} 是「不使用」，請先到樓層分頁打開它，或把這台設成不使用`);
+    }
+
+    if (errs.length) plan.errors.push(`第 ${line} 行（${id}）：${errs.join('；')}`);
+    else items.push({ line, id, old, data });
+  }
+
+  // 新樓層：照檔案裡出現的順序，排在現有樓層後面
+  let floorSort = cur.floors.reduce((max, f) => Math.max(max, f.sortOrder ?? 0), 0);
+  for (const [floorId, name] of newFloorNames) {
+    if (!items.some((it) => it.data.floorId === floorId)) continue;
+    floorSort = Math.min(9999, floorSort + 1);
+    plan.newFloors.push({ floorId, name, sortOrder: floorSort });
+  }
+
+  // 排列順序空白的新設備：接在那層目前最大的號碼後面
+  const maxSort = new Map();
+  const bump = (floorId, n) => maxSort.set(floorId, Math.max(maxSort.get(floorId) ?? 0, n ?? 0));
+  for (const m of cur.machines) if (!seen.has(m.machineId)) bump(m.floorId, m.sortOrder);
+  for (const it of items) if (it.data.sortOrder !== null) bump(it.data.floorId, it.data.sortOrder);
+  for (const it of items) {
+    if (it.data.sortOrder !== null) continue;
+    const next = (maxSort.get(it.data.floorId) ?? 0) + 1;
+    if (next > 9999) { plan.errors.push(`第 ${it.line} 行（${it.id}）：樓層 ${it.data.floorId} 的排列順序已經到 9999，請自己填`); continue; }
+    it.data.sortOrder = next;
+    maxSort.set(it.data.floorId, next);
+  }
+
+  // 分成新增、更新、不變
+  for (const it of items) {
+    if (it.data.sortOrder === null) continue;
+    if (!it.old) { plan.creates.push(it); continue; }
+    const changes = Object.keys(CHANGE_LABELS)
+      .filter((key) => (key === 'active' ? (it.old.active === true) !== it.data.active
+        : key === 'sortOrder' ? (it.old.sortOrder ?? 0) !== it.data.sortOrder
+          : String(it.old[key] ?? '') !== String(it.data[key] ?? '')))
+      .map((key) => ({ key, from: it.old[key], to: it.data[key] }));
+    if (changes.length) plan.updates.push({ ...it, changes });
+    else plan.unchanged += 1;
+  }
+  plan.untouched = cur.machines.filter((m) => !seen.has(m.machineId)).length;
+  return plan;
+}
+
+// 用來比對「預覽時」和「按確定時」要寫的內容是不是一樣
+function planSignature(plan) {
+  return JSON.stringify([
+    plan.errors.length,
+    plan.newFloors.map((f) => f.floorId),
+    plan.creates.map((it) => it.id),
+    plan.updates.map((it) => [it.id, it.changes.map((c) => c.key)])
+  ]);
+}
+
+// ---------- 預覽畫面 ----------
+function importValueText(key, value, newFloors) {
+  if (key === 'active') return value === true ? '使用中' : '不使用';
+  if (key === 'deptId') return depts.find((d) => d.id === value)?.name || value || '（空白）';
+  if (key === 'floorId') {
+    const name = floors.find((f) => f.floorId === value)?.name || newFloors.find((f) => f.floorId === value)?.name;
+    return name ? `${name}（${value}）` : (value || '（空白）');
+  }
+  const text = String(value ?? '');
+  return text === '' ? '（空白）' : text;
+}
+
+function importListBox(title, lines, { open = false, error = false } = {}) {
+  if (!lines.length) return '';
+  return `<details class="imp-box${error ? ' is-error' : ''}"${open ? ' open' : ''}>
+    <summary>${escapeHtml(title)}</summary>
+    <ul>${lines.map((t) => `<li>${escapeHtml(t)}</li>`).join('')}</ul>
+  </details>`;
+}
+
+function renderImportPreview(plan, doneText = '') {
+  const total = plan.newFloors.length + plan.creates.length + plan.updates.length;
+  const hasError = plan.errors.length > 0;
+  const nameOfNewFloor = (id) => importValueText('floorId', id, plan.newFloors);
+  const chips = [
+    ['資料', plan.rowCount], ['新增樓層', plan.newFloors.length], ['新增設備', plan.creates.length],
+    ['更新', plan.updates.length], ['不變', plan.unchanged], ['檔案沒有、不會動', plan.untouched]
+  ].map(([label, n]) => `<span>${label}<b>${n}</b></span>`).join('')
+    + (hasError ? `<span class="is-error">錯誤<b>${plan.errors.length}</b></span>` : '');
+
+  let hint;
+  if (hasError) hint = '有錯誤，整批都不會寫入。請修正檔案後，再按「選擇檔案」選一次。';
+  else if (total === 0) hint = '跟系統裡的資料一樣，沒有要寫入的。';
+  else hint = `確認沒問題，按「確定匯入」才會寫入，共 ${total} 筆。匯入時請不要關掉這一頁或鎖住螢幕。`;
+
+  $('imp-preview').innerHTML = `
+    ${doneText ? `<p class="imp-done">${escapeHtml(doneText)}</p>` : ''}
+    <div class="imp-sum">${chips}</div>
+    ${importListBox(`錯誤（${plan.errors.length}）`, plan.errors, { open: true, error: true })}
+    ${importListBox(`注意（${plan.warnings.length}）`, plan.warnings, { open: true })}
+    ${importListBox(`新增樓層（${plan.newFloors.length}）`, plan.newFloors.map((f) => `${f.floorId}　${f.name}`), { open: true })}
+    ${importListBox(`更新設備（${plan.updates.length}）`, plan.updates.map((it) => `${it.id}：${it.changes
+      .map((c) => `${c.key === 'active' ? '' : `${CHANGE_LABELS[c.key]} `}${importValueText(c.key, c.from, plan.newFloors)} → ${importValueText(c.key, c.to, plan.newFloors)}`)
+      .join('；')}`), { open: plan.updates.length <= 20 })}
+    ${importListBox(`新增設備（${plan.creates.length}）`, plan.creates.map((it) =>
+      `${it.id}　${it.data.brand} ${it.data.model}・${it.data.category}・${nameOfNewFloor(it.data.floorId)}・順序 ${it.data.sortOrder}${it.data.active ? '' : '・不使用'}`))}
+    <p class="imp-hint">${escapeHtml(hint)}</p>`;
+  $('imp-run').textContent = `確定匯入（${total} 筆）`;
+  $('imp-run').hidden = hasError || total === 0;
+}
+
+function lockImport(lock) {
+  importing = lock;
+  for (const id of ['imp-file', 'imp-close', 'btn-import']) $(id).disabled = lock;
+}
+
+// 匯入中離開頁面要先問一下（還沒寫完的會中斷）
+window.addEventListener('beforeunload', (event) => {
+  if (!importing) return;
+  event.preventDefault();
+  event.returnValue = '';
+});
+
+// 等太久就當作失敗（網路斷了的時候，資料庫的寫入會一直等）
+function withTimeout(promise, ms) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('timeout'), { code: 'timeout' })), ms); })
+  ]).finally(() => clearTimeout(timer));
+}
+
+// 直接跟資料庫要最新的設備、樓層、單位（不用這台裝置上的暫存）
+async function fetchFresh() {
+  const [machineSnap, floorSnap, deptSnap] = await Promise.all([
+    getDocsFromServer(collection(db, 'machines')),
+    getDocsFromServer(collection(db, 'floors')),
+    getDocsFromServer(collection(db, 'departments'))
+  ]);
+  return {
+    machines: machineSnap.docs.map((d) => ({ ...d.data(), machineId: d.id })),
+    floors: floorSnap.docs.map((d) => ({ ...d.data(), floorId: d.id })),
+    depts: deptSnap.docs.map((d) => ({ ...d.data(), id: d.id }))
+  };
+}
+
+function resetImport() {
+  importTable = null;
+  importFileName = '';
+  importPlan = null;
+  $('imp-filename').textContent = '';
+  $('imp-preview').innerHTML = '';
+  $('imp-error').textContent = '';
+  $('imp-run').hidden = true;
+}
+
+$('btn-import').addEventListener('click', () => {
+  closeMachineForm();
+  resetImport();
+  $('import-card').hidden = false;
+  $('import-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+$('imp-close').addEventListener('click', () => {
+  if (importing) return;
+  $('import-card').hidden = true;
+  resetImport();
+});
+
+$('imp-file').addEventListener('change', async () => {
+  const file = $('imp-file').files?.[0];
+  if (!file) return;
+  resetImport();
+  try {
+    if (file.size > IMPORT_MAX_BYTES) throw new Error('檔案超過 2 MB，請確認選的是設備清單檔');
+    const text = decodeCsv(await file.arrayBuffer());
+    if (text === null) throw new Error('看不懂這個檔案的文字編碼，請另存成「CSV UTF-8」再試');
+    importTable = parseCsv(text);
+    importFileName = file.name;
+    $('imp-filename').textContent = file.name;
+    importPlan = buildImportPlan(importTable, { machines, floors, depts });
+    renderImportPreview(importPlan);
+  } catch (err) {
+    $('imp-error').textContent = err.message || errorMessage(err);
+  } finally {
+    $('imp-file').value = '';   // 清掉，同一個檔才能再選一次
+  }
+});
+
+$('imp-run').addEventListener('click', async () => {
+  if (!importTable || importing) return;
+  lockImport(true);
+  setBusy($('imp-run'), true, '確認最新資料…');
+  $('imp-error').textContent = '';
+  let wakeLock = null;
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* 不支援就算了 */ }
+  let done = 0;
+  let doneText = '';
+  let current = '';
+  try {
+    // 1. 再跟資料庫要一次最新資料：預覽之後有人改過，就重新預覽、請使用者再確認
+    const fresh = await withTimeout(fetchFresh(), 30000);
+    const plan = buildImportPlan(importTable, fresh);
+    if (planSignature(plan) !== planSignature(importPlan)) {
+      $('imp-error').textContent = '資料剛被改過，已經重新整理預覽，請再確認一次。';
+      return;
+    }
+    // 2. 先建新樓層（設備的樓層必須已經存在，安全規則會檢查），再一台一台寫設備
+    const machineFields = (d) => ({
+      machineId: d.machineId, deptId: d.deptId, floorId: d.floorId, category: d.category, brand: d.brand,
+      model: d.model, sortOrder: d.sortOrder, active: d.active, note: d.note
+    });
+    const ops = [
+      ...plan.newFloors.map((f) => ({
+        label: `樓層 ${f.floorId}`, ref: doc(db, 'floors', f.floorId),
+        data: { floorId: f.floorId, name: f.name, sortOrder: f.sortOrder, active: true }
+      })),
+      ...[...plan.creates, ...plan.updates].map((it) => ({
+        label: it.id, ref: doc(db, 'machines', it.id), data: machineFields(it.data)
+      }))
+    ];
+    for (const op of ops) {
+      current = op.label;
+      $('imp-run').textContent = `匯入中… ${done} / ${ops.length}`;
+      await withTimeout(setDoc(op.ref, { ...op.data, ...stamp() }), WRITE_TIMEOUT_MS);
+      done += 1;
+    }
+    doneText = `匯入完成：新增樓層 ${plan.newFloors.length} 個、新增設備 ${plan.creates.length} 台、更新 ${plan.updates.length} 台`;
+    toast('匯入完成');
+  } catch (err) {
+    const reason = err.code === 'timeout' ? `網路太慢，${WRITE_TIMEOUT_MS / 1000} 秒沒有回應` : errorMessage(err);
+    $('imp-error').textContent = done
+      ? `寫到 ${current} 時失敗：${reason}。前面 ${done} 筆已經寫好，不用重做；網路正常後按「確定匯入」再試，會從還沒寫的接著做。`
+      : `匯入失敗：${reason}`;
+  } finally {
+    try { await wakeLock?.release(); } catch { /* 已經釋放了 */ }
+    setBusy($('imp-run'), false);
+    lockImport(false);
+    // 3. 重新讀資料，預覽改成現在的樣子（寫好的會變成「不變」）
+    try {
+      await loadAll();
+      importPlan = buildImportPlan(importTable, { machines, floors, depts });
+      renderImportPreview(importPlan, doneText);
+    } catch (err) {
+      $('imp-error').textContent = `${$('imp-error').textContent} 重新讀取失敗：${errorMessage(err)}`.trim();
+    }
   }
 });
 </script>
