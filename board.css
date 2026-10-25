@@ -269,3 +269,74 @@
 .fx-scope { font-size: 15px; color: var(--ink-soft); }
 .fx-board { font-weight: 700; padding: 8px 12px; border: 2px dashed var(--ink); border-radius: 6px; }
 .fx-index { margin: 12px 0 0; }
+
+/* ============================================================
+   功能⑥：機台面板的錯誤訊息和按鈕固定在面板最下面（看板、機台頁都一樣）
+   手機上面板比畫面長，不用捲到底才按得到「確認」
+   ============================================================ */
+.mp-foot {
+  position: sticky; bottom: -18px; z-index: 1;
+  margin: 4px -20px -18px; padding: 8px 20px 18px;
+  background: var(--panel); border-top: 1px solid var(--rule);
+}
+.mp-foot .form-error:empty { min-height: 0; }
+
+/* ============================================================
+   以下為功能⑥（機台頁：掃 QR 進來的單台機畫面）新增的樣式
+   面板、履歷、修正的樣式跟看板共用（在上面），這裡只有機台頁自己的
+   ============================================================ */
+.mc-page { max-width: 560px; padding-top: 16px; }
+.mc-head { margin: 0 0 12px; }
+.mc-id { font-family: var(--font-code); font-size: 48px; font-weight: 700; line-height: 1; letter-spacing: .03em; margin: 0; }
+.mc-sub { margin: 6px 0 0; color: var(--ink-soft); }
+
+/* 目前狀態：整塊用狀態顏色 */
+.mc-now {
+  display: grid; gap: 2px; padding: 14px 16px;
+  border-radius: 10px; background: var(--c); color: var(--fg);
+}
+.mc-now-top { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 2px 12px; }
+.mc-now-status { font-size: 28px; font-weight: 700; line-height: 1.2; }
+.mc-now-dur { font-size: 16px; font-weight: 600; }
+.mc-now-line { font-size: 16px; overflow-wrap: anywhere; }
+.mc-now.is-unset { background: var(--panel); color: var(--ink-soft); border: 2px dashed var(--rule-strong); }
+.mc-now.is-unset .mc-now-status { color: var(--ink); }
+/* 故障、品質異常：外框一明一暗（跟看板卡片一樣） */
+.mc-now.is-alert {
+  box-shadow: 0 0 0 4px var(--steel), 0 0 0 8px var(--c);
+  animation: alert-pulse 1.6s ease-in-out infinite;
+}
+.mc-updated { margin: 8px 0 0; }
+
+/* 還沒送出：一直顯示到資料送到資料庫 */
+.mc-pending {
+  margin: 12px 0 0; padding: 12px 14px;
+  background: var(--panel); border: 2px dashed var(--ink); border-radius: 8px;
+  font-weight: 700;
+}
+
+/* 狀態按鈕：一排兩個，比看板面板的再大一點，站著單手也好按 */
+.mc-sec { font-size: 18px; margin: 22px 0 10px; }
+.mc-st-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.mc-st-grid .st-btn { min-height: 64px; padding: 6px 8px; font-size: 20px; line-height: 1.2; }
+.mc-st-grid .st-btn[aria-current="true"] { outline: 4px solid var(--ink); outline-offset: 3px; }
+.st-now { display: block; font-size: 13px; font-weight: 600; }
+
+.mc-readonly {
+  margin: 22px 0 0; padding: 12px 14px;
+  background: var(--sunk); border: 2px dashed var(--rule-strong); border-radius: 8px;
+  color: var(--ink-soft);
+}
+.mc-history { margin-top: 18px; }
+
+/* 最下面：目前是誰登入（大家共用手機測試時看得出來） */
+.mc-who {
+  display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 12px;
+  margin: 26px 0 0; padding-top: 14px; border-top: 1px solid var(--rule);
+  color: var(--ink-soft); font-size: 15px;
+}
+.mc-who .btn { min-height: 44px; padding: 0 14px; font-size: 15px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .mc-now.is-alert { animation: none; }
+}

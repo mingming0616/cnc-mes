@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>機台｜CNC MES</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=2">
+<!-- 機台頁的樣式也寫在 board.css（面板、履歷跟看板共用）；board.css 改版時把 v 的數字加 1 -->
+<link rel="stylesheet" href="board.css?v=4">
+</head>
+<body>
+
+<header class="topbar">
+  <a class="btn ghost" href="board.html">看板</a>
+  <span class="topbar-title">機台</span>
+  <span id="conn" class="conn">連線中…</span>
+</header>
+
+<main class="page mc-page">
+  <!-- 載入中、網址錯誤、找不到機台、讀取錯誤時顯示這裡 -->
+  <div id="state" class="state">載入中…</div>
+
+  <section id="view" hidden>
+    <div class="mc-head">
+      <h1 id="mc-id" class="mc-id"></h1>
+      <p id="mc-sub" class="mc-sub"></p>
+    </div>
+
+    <!-- 目前狀態（即時更新） -->
+    <div id="mc-now" class="mc-now" aria-live="polite"></div>
+    <p id="mc-updated" class="muted mc-updated"></p>
+    <!-- 剛存的資料還沒送到資料庫（沒網路或網路慢） -->
+    <p id="mc-pending" class="mc-pending" role="status" hidden>還沒送出：網路恢復前，這個頁面先不要關</p>
+
+    <!-- 切換狀態：點了才打開面板確認，不會一點就存 -->
+    <section id="mc-actions" hidden>
+      <h2 class="mc-sec">切換狀態</h2>
+      <div id="mc-statuses" class="mc-st-grid"></div>
+    </section>
+    <p id="mc-readonly" class="mc-readonly" hidden></p>
+
+    <button id="mc-history" class="btn block mc-history" type="button">異動履歷</button>
+
+    <!-- 之後各階段的現場動作（報工、首件巡檢、換刀保養）會加在這裡，貼紙不用換 -->
+
+    <p class="mc-who">
+      <span id="mc-who-text"></span>
+      <button id="mc-logout" class="btn" type="button">換人登入</button>
+    </p>
+  </section>
+</main>
+
+<script type="module">
+// ============================================================
+// machine.html：機台頁（功能⑥，掃機台上的 QR 貼紙進來；所有角色都能看）
+//   網址：machine.html?machineId=設備編號&openExternalBrowser=1
+//     （最後的參數讓 LINE 掃碼也改用手機原本的瀏覽器打開，這頁不用它）
+//   只讀這一台：本人資料、設備主檔、單位（狀態、原因）、樓層、班別各讀 1 次，
+//     加上即時監聽這一台的目前狀態，掃一次大約 6 次讀取（看板要讀全部機台）
+//   切換狀態：點狀態 → status-panel.js（跟看板共用）；誰能切換跟看板一樣
+//   異動履歷、修正紀錄：history.js（跟看板共用）
+//   沒登入：先到登入頁，登入後自動回到這台機
+//   之後的階段：報工、首件巡檢、換刀保養都加在這一頁
+// ============================================================
+// common.js、history.js、status-panel.js 改版時，把下面網址的 v 數字加 1（跟 board.html 一樣）
+import {
+  db, collection, getDocs, doc, getDoc, writeBatch, serverTimestamp, onSnapshot,
+  query, where, orderBy, limit, startAfter, Timestamp, getDocFromServer, getDocsFromServer,
+  requireUser, logout, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime,
+  formatDuration, prodDateAndShift, colorStyle
+} from './common.js?v=5';
+import { setupHistory, openHistory, refreshHistory } from './history.js?v=3';
+import { setupStatusPanel, openStatusPanel, refreshStatusPanel } from './status-panel.js?v=1';
+
+const $ = (id) => document.getElementById(id);
+// 設備編號：英文大寫、數字和「-」，2～12 碼，第一個字不能是「-」（跟主檔一樣）
+const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,11}$/;
+const machineId = String(new URLSearchParams(location.search).get('machineId') || '').trim().toUpperCase();
+
+let me = null;            // 登入者的人員資料
+let machine = null;       // 這台設備的主檔
+let dept = null;          // 這台設備的單位（狀態、原因、顏色）
+let floor = null;         // 這台設備的樓層
+let shiftSetting = null;  // 班別設定
+let statusEntry;          // 目前狀態 { data, pending }；還沒設定過是 undefined
+
+// ---------- 小工具（給面板、履歷用的介面跟看板一樣） ----------
+const machineOf = (id) => (machine && id === machine.machineId ? machine : null);
+const floorName = (id) => (floor && floor.floorId === id ? floor.name : (id || '—'));
+// 這一頁只讀這台機的單位；履歷裡別的單位的紀錄，history.js 會改用這台機的單位來顯示
+const deptFor = (deptId) => (dept && dept.id === deptId ? dept : null);
+const statusList = (deptId) => deptFor(deptId)?.statuses || [];
+const statusDef = (deptId, code) => statusList(deptId).find((s) => s.code === code) || null;
+const activeReasons = (deptId, code) => (deptFor(deptId)?.reasons?.[code] || []).filter((r) => r.active !== false);
+const reasonLabel = (deptId, status, code) =>
+  (code ? (deptFor(deptId)?.reasons?.[status]?.find((r) => r.code === code)?.label || code) : '');
+const sinceMs = () => statusEntry?.data?.statusSince?.toMillis?.() ?? Date.now();
+const getStatus = (id) => (id === machineId ? statusEntry : undefined);
+
+// 誰能切換這台的狀態（跟看板一樣）
+function canEdit(m) {
+  if (me.role === 'admin') return true;
+  return me.role === 'maintainer' && (me.deptIds || []).includes(m.deptId);
+}
+
+function setConn(online) {
+  $('conn').textContent = online ? '即時更新中' : '離線：畫面可能不是最新';
+  $('conn').classList.toggle('is-offline', !online);
+}
+
+// 顯示錯誤（網址錯、找不到機台…），整頁只剩這段
+function fail(html) {
+  $('state').innerHTML = html;
+  $('state').hidden = false;
+  $('view').hidden = true;
+  $('conn').hidden = true;
+}
+
+// ---------- 開始 ----------
+if (!CODE_PATTERN.test(machineId)) {
+  fail('<p>網址少了設備編號，或格式不對。</p>'
+    + '<p class="muted">請重新掃描機台上的 QR code；還是不行，請管理者重印標籤。</p>'
+    + '<a class="btn" href="index.html">回首頁</a>');
+} else {
+  document.title = `${machineId}｜CNC MES`;
+  // 沒登入會先到登入頁，登入後回到這台機
+  const ctx = await requireUser({ loginParams: { next: 'machine', machineId } });
+  if (ctx.error) {
+    fail(`<p>${escapeHtml(errorMessage(ctx.error))}</p><button class="btn" type="button" onclick="location.reload()">重新整理</button>`);
+  } else {
+    me = ctx.profile;
+    try {
+      const found = await loadMachine();
+      if (found === 'missing') {
+        fail(`<p>找不到設備 <b>${escapeHtml(machineId)}</b>。</p>`
+          + '<p class="muted">請確認貼紙是不是這台機的；設備還沒建主檔的話，請管理者先到「主檔維護」新增。</p>'
+          + '<a class="btn" href="board.html">回看板</a>');
+      } else if (found === 'inactive') {
+        fail(`<p><b>${escapeHtml(machineId)}</b> 已經不使用（主檔關掉了「使用中」）。</p>`
+          + '<p class="muted">機台還在現場的話，請管理者到「主檔維護」改回使用中，或把這張貼紙撕掉。</p>'
+          + '<a class="btn" href="board.html">回看板</a>');
+      } else {
+        setupModules();
+        listenStatus();
+        $('state').hidden = true;
+        $('view').hidden = false;
+        render();
+      }
+    } catch (err) {
+      fail(`<p>${escapeHtml(errorMessage(err))}</p><button class="btn" type="button" onclick="location.reload()">重新整理</button>`);
+    }
+  }
+}
+
+// 只讀這一台需要的資料：設備主檔 → 它的單位、樓層，加上班別設定
+async function loadMachine() {
+  const machineSnap = await getDoc(doc(db, 'machines', machineId));
+  if (!machineSnap.exists()) return 'missing';
+  machine = { ...machineSnap.data(), machineId: machineSnap.id };
+  if (machine.active !== true) return 'inactive';
+  const [deptSnap, floorSnap, shiftSnap] = await Promise.all([
+    getDoc(doc(db, 'departments', machine.deptId)),
+    getDoc(doc(db, 'floors', machine.floorId)),
+    getDoc(doc(db, 'settings', 'shifts'))
+  ]);
+  dept = deptSnap.exists() ? { ...deptSnap.data(), id: deptSnap.id } : null;
+  floor = floorSnap.exists() ? { ...floorSnap.data(), floorId: floorSnap.id } : null;
+  shiftSetting = shiftSnap.exists() ? shiftSnap.data() : null;
+  return 'ok';
+}
+
+// 即時監聽這一台的目前狀態（別人改了，幾秒內自動更新；只讀這 1 筆）
+function listenStatus() {
+  onSnapshot(doc(db, 'machineStatus', machineId), { includeMetadataChanges: true }, (snap) => {
+    statusEntry = snap.exists()
+      ? { data: snap.data({ serverTimestamps: 'estimate' }), pending: snap.metadata.hasPendingWrites }
+      : undefined;
+    setConn(!snap.metadata.fromCache);
+    render();
+    refreshStatusPanel();   // 面板開著時，同步更新「目前」那一行
+    refreshHistory();       // 履歷開著時，同步更新
+  }, (err) => {
+    setConn(false);
+    toast(errorMessage(err), 'error');
+  });
+}
+
+// 把資料庫函式和這一頁的資料傳給面板、履歷（跟看板傳的一樣）
+function setupModules() {
+  const asked = parseInt(new URLSearchParams(location.search).get('pageSize'), 10);
+  setupHistory({
+    db, collection, query, where, orderBy, limit, startAfter, getDocs, onSnapshot, Timestamp,
+    escapeHtml, errorMessage, formatDuration, prodDateAndShift,
+    machineOf, floorName, statusDef, reasonLabel, colorStyle,
+    getStatus,
+    getShiftSetting: () => shiftSetting,
+    isAdmin: () => me?.role === 'admin',
+    pageSize: asked >= 1 && asked <= 100 ? asked : 30,   // 測試用：網址加 &pageSize=3
+    doc, writeBatch, serverTimestamp, getDocFromServer, getDocsFromServer,
+    toast, activeReasons, myEmpNo,
+    getMe: () => me,
+    canEdit
+  });
+  setupStatusPanel({
+    db, collection, doc, writeBatch, serverTimestamp,
+    myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime, formatDuration, prodDateAndShift,
+    machineOf, floorName, statusList, statusDef, activeReasons, reasonLabel, colorStyle,
+    getStatus,
+    getShiftSetting: () => shiftSetting,
+    getMe: () => me,
+    canEdit,
+    openHistory
+  });
+}
+
+// ---------- 畫面 ----------
+function render() {
+  const esc = escapeHtml;
+  $('mc-id').textContent = machine.machineId;
+  $('mc-sub').textContent = `${machine.brand} ${machine.model}，${floorName(machine.floorId)}，${dept?.name || machine.deptId}`;
+
+  const now = $('mc-now');
+  if (!statusEntry) {
+    now.className = 'mc-now is-unset';
+    now.removeAttribute('style');
+    now.innerHTML = '<span class="mc-now-status">未設定</span><span class="mc-now-line">這台還沒切過狀態</span>';
+    $('mc-updated').textContent = '';
+  } else {
+    const s = statusEntry.data;
+    const def = statusDef(machine.deptId, s.status);
+    const reason = reasonLabel(machine.deptId, s.status, s.reasonCode);
+    const since = sinceMs();
+    const part = [s.partNo ? `料號 ${s.partNo}` : '', s.opNo ? `製程 ${s.opNo}` : ''].filter(Boolean).join('，');
+    now.className = `mc-now${def?.alert ? ' is-alert' : ''}`;
+    now.setAttribute('style', colorStyle(def?.color));
+    now.innerHTML =
+      '<span class="mc-now-top">'
+      + `<span class="mc-now-status">${esc(def?.label || s.status)}</span>`
+      + `<span class="mc-now-dur">已持續 <span class="js-dur" data-since="${since}">${formatDuration(Date.now() - since)}</span></span>`
+      + '</span>'
+      + (reason ? `<span class="mc-now-line">原因：${esc(reason)}</span>` : '')
+      + (part ? `<span class="mc-now-line">${esc(part)}</span>` : '')
+      + (s.note ? `<span class="mc-now-line">備註：${esc(s.note)}</span>` : '');
+    $('mc-updated').textContent =
+      `${s.updatedByName || ''}（${s.updatedByEmpNo || ''}）${formatTime(s.updatedAt)} 更新${statusEntry.pending ? '，同步中…' : ''}`;
+  }
+  $('mc-pending').hidden = !statusEntry?.pending;
+
+  const editable = canEdit(machine);
+  $('mc-actions').hidden = !editable;
+  $('mc-readonly').hidden = editable;
+  $('mc-readonly').textContent = me.role === 'viewer'
+    ? '檢視帳號只能查看，不能切換狀態。'
+    : '你不負責這個單位，只能查看，不能切換狀態。';
+  if (editable) {
+    const currentCode = statusEntry?.data?.status || '';
+    $('mc-statuses').innerHTML = statusList(machine.deptId).map((d) => {
+      const isNow = d.code === currentCode;
+      return `<button type="button" class="st-btn" data-code="${esc(d.code)}"${isNow ? ' aria-current="true"' : ''} style="${colorStyle(d.color)}">`
+        + `${esc(d.label)}${isNow ? '<span class="st-now">目前</span>' : ''}</button>`;
+    }).join('') || '<p class="muted">這個單位還沒有狀態設定，請管理者回首頁按「建立預設資料」。</p>';
+  }
+  $('mc-who-text').textContent = `目前登入：${me.name}（${me.empNo}）`;
+}
+
+// 點狀態 → 打開面板（先幫他選好這個狀態），在面板選原因、按「確認」才存
+$('mc-statuses').addEventListener('click', (event) => {
+  const button = event.target.closest('.st-btn');
+  if (button) openStatusPanel(machineId, { status: button.dataset.code });
+});
+
+$('mc-history').addEventListener('click', () => openHistory(machineId));
+
+// 換人登入：登出後到登入頁，登入完回到這台機
+$('mc-logout').addEventListener('click', async () => {
+  if (statusEntry?.pending && !confirm('還有資料沒送出，現在登出這筆可能會不見。確定要登出嗎？')) return;
+  await logout();
+  location.replace(`index.html?${new URLSearchParams({ next: 'machine', machineId })}`);
+});
+
+// 還有資料沒送出時，關頁面前提醒（電腦會跳確認；手機瀏覽器大多不會跳，所以畫面上也有提示）
+window.addEventListener('beforeunload', (event) => {
+  if (statusEntry?.pending) {
+    event.preventDefault();
+    event.returnValue = '';
+  }
+});
+
+// 持續時間每 30 秒更新一次（只改畫面上的字，不會讀資料庫）
+setInterval(() => {
+  const now = Date.now();
+  document.querySelectorAll('.js-dur').forEach((el) => {
+    el.textContent = formatDuration(now - Number(el.dataset.since));
+  });
+}, 30000);
+</script>
+</body>
+</html>

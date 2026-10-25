@@ -9,7 +9,7 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
 <link rel="stylesheet" href="style.css?v=2">
 <!-- 看板專用樣式；board.css 改版時把 v 的數字加 1 -->
-<link rel="stylesheet" href="board.css?v=3">
+<link rel="stylesheet" href="board.css?v=4">
 </head>
 <body>
 
@@ -37,125 +37,29 @@
   </section>
 </main>
 
-<!-- ========== 機台面板：查看詳細、切換狀態 ========== -->
-<dialog id="dlg-machine">
-  <form id="machine-form" class="dialog-body" novalidate>
-    <h2 id="mp-title" class="mp-title"></h2>
-    <p id="mp-sub" class="muted"></p>
-    <p id="mp-current"></p>
-
-    <div id="mp-edit">
-      <fieldset class="field">
-        <legend>狀態</legend>
-        <div id="mp-statuses" class="status-grid"></div>
-      </fieldset>
-      <fieldset id="mp-reason-box" class="field" hidden>
-        <legend id="mp-reason-legend">原因</legend>
-        <div id="mp-reasons" class="reason-grid"></div>
-      </fieldset>
-      <div class="form-grid">
-        <label class="field"><span>料號（可不填）</span><input id="mp-part" type="text" maxlength="40" spellcheck="false"></label>
-        <label class="field"><span>製程（可不填）</span><input id="mp-op" type="text" maxlength="20" spellcheck="false" placeholder="例：OP10"></label>
-      </div>
-      <label class="field"><span>備註（可不填）</span><input id="mp-note" type="text" maxlength="100"></label>
-    </div>
-
-    <p id="mp-readonly" class="muted" hidden></p>
-    <p id="mp-error" class="form-error" role="alert"></p>
-    <div class="row-actions">
-      <!-- 功能④：所有角色都看得到 -->
-      <button id="mp-history" class="btn mp-history" type="button">異動履歷</button>
-      <button id="mp-close" class="btn" type="button">關閉</button>
-      <button id="mp-save" class="btn primary" type="submit">確認</button>
-    </div>
-  </form>
-</dialog>
-
-<!-- ========== 異動履歷：一台機的狀態變更紀錄（功能④，程式在 history.js） ========== -->
-<dialog id="dlg-history" aria-labelledby="h-title">
-  <header class="hist-head">
-    <div class="hist-head-text">
-      <h2 id="h-title" class="hist-title"></h2>
-      <p id="h-sub" class="hist-sub"></p>
-    </div>
-    <button id="h-close" class="btn" type="button" autofocus>關閉</button>
-  </header>
-  <div class="hist-body">
-    <!-- 目前狀態（跟看板一樣即時更新） -->
-    <div id="h-current" class="hist-current"></div>
-    <div class="hist-tools">
-      <label class="field hist-date"><span>跳到日期（生產日）</span><input id="h-date" type="date"></label>
-      <button id="h-go" class="btn" type="button">查詢</button>
-      <button id="h-latest" class="btn" type="button" hidden>回到最新</button>
-    </div>
-    <p id="h-mode" class="muted hist-mode" hidden></p>
-    <!-- 依生產日分組的異動清單 -->
-    <div id="h-list"></div>
-    <div class="hist-foot">
-      <button id="h-more" class="btn block" type="button" hidden>載入更早的紀錄</button>
-      <p id="h-end" class="muted hist-end" hidden>沒有更早的紀錄</p>
-    </div>
-  </div>
-</dialog>
-
-<!-- ========== 修正紀錄：改錯的原因、料號、製程、備註（功能⑤，程式在 history.js） ==========
-     原本那筆不動，另外新增一筆修正紀錄；狀態和時間不能改 -->
-<dialog id="dlg-fix" aria-labelledby="fx-title">
-  <form id="fix-form" class="dialog-body" novalidate>
-    <h2 id="fx-title" class="fx-title">修正紀錄</h2>
-    <!-- 要修正的是哪一筆：時間、班別、狀態、誰記的 -->
-    <div id="fx-target" class="fx-target"></div>
-
-    <!-- 修改畫面 -->
-    <div id="fx-edit">
-      <p class="muted">狀態和時間不能改；狀態按錯，請回看板再切一次正確的。</p>
-      <fieldset id="fx-reason-box" class="field" hidden>
-        <legend id="fx-reason-legend">原因</legend>
-        <div id="fx-reasons" class="reason-grid"></div>
-      </fieldset>
-      <div class="form-grid">
-        <label class="field"><span>料號</span><input id="fx-part" type="text" maxlength="40" spellcheck="false" autocomplete="off"></label>
-        <label class="field"><span>製程</span><input id="fx-op" type="text" maxlength="20" spellcheck="false" autocomplete="off" placeholder="例：OP10"></label>
-      </div>
-      <label class="field"><span>備註</span><input id="fx-note" type="text" maxlength="100" autocomplete="off"></label>
-      <fieldset class="field">
-        <legend>修正理由</legend>
-        <div id="fx-why" class="reason-grid"></div>
-      </fieldset>
-      <label class="field"><span id="fx-detail-label">補充說明（可不填）</span><input id="fx-detail" type="text" maxlength="60" autocomplete="off"></label>
-    </div>
-
-    <!-- 確認畫面：改前→改後、連帶幾筆、看板會不會跟著變 -->
-    <div id="fx-confirm" class="fx-confirm" hidden></div>
-
-    <!-- 缺索引時的說明（管理者有建立連結） -->
-    <div id="fx-index" class="hist-error fx-index" hidden></div>
-    <p id="fx-error" class="form-error" role="alert"></p>
-    <div class="row-actions">
-      <button id="fx-cancel" class="btn" type="button">取消</button>
-      <button id="fx-save" class="btn primary" type="submit">存檔</button>
-    </div>
-  </form>
-</dialog>
+<!-- 機台面板（切換狀態）、異動履歷、修正紀錄的畫面，
+     由 status-panel.js、history.js 自動加到這裡（功能⑥搬成共用檔，機台頁也用同一份） -->
 
 <script type="module">
 // ============================================================
 // board.html：設備看板（所有角色都能看）
 //   讀：departments（狀態、原因、顏色）、floors、machines、settings/shifts 各讀一次
 //   即時監聽：machineStatus（有人改了，幾秒內自動更新）
-//   切換狀態：一次寫入「目前狀態 machineStatus」＋「事件紀錄 machineEvents」
+//   切換狀態：點卡片 → status-panel.js（功能⑥從這裡搬出去，機台頁也用同一份）
+//     一次寫入「目前狀態 machineStatus」＋「事件紀錄 machineEvents」
 //   誰能切換：管理者（全部單位）、維護員（負責單位）；檢視只能看
 //   異動履歷（功能④）：面板「異動履歷」→ history.js，所有角色都能看
 //   修正紀錄（功能⑤）：履歷上那筆按「修正」→ history.js；管理者全部、維護員負責單位當班內
 // ============================================================
-// common.js、history.js 改版時，把下面網址的 v 數字加 1
+// common.js、history.js、status-panel.js 改版時，把下面網址的 v 數字加 1
 import {
   db, collection, getDocs, doc, getDoc, writeBatch, serverTimestamp, onSnapshot,
   query, where, orderBy, limit, startAfter, Timestamp, getDocFromServer, getDocsFromServer,
   requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime,
-  formatDuration, prodDateAndShift
-} from './common.js?v=4';
-import { setupHistory, openHistory, refreshHistory } from './history.js?v=2';
+  formatDuration, prodDateAndShift, colorStyle
+} from './common.js?v=5';
+import { setupHistory, openHistory, refreshHistory } from './history.js?v=3';
+import { setupStatusPanel, openStatusPanel, refreshStatusPanel } from './status-panel.js?v=1';
 
 const $ = (id) => document.getElementById(id);
 const FILTER_KEY = 'cncmes-board-filters';   // 記住這台裝置上次選的單位、樓層
@@ -166,8 +70,6 @@ let floors = [];             // 使用中的樓層
 let machines = [];           // 使用中的設備
 let shiftSetting = null;     // 班別設定
 const statusMap = new Map(); // 設備編號 → { data: 目前狀態, pending: 是否還在同步 }
-let current = null;          // 面板正在看的設備編號
-let picked = { status: '', reason: '' };   // 面板裡選的狀態、原因
 
 // ---------- 小工具 ----------
 const naturalCompare = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'en', { numeric: true });
@@ -179,27 +81,10 @@ const statusDef = (deptId, code) => deptOf(deptId)?.statuses?.find((s) => s.code
 const activeReasons = (deptId, code) => (deptOf(deptId)?.reasons?.[code] || []).filter((r) => r.active !== false);
 const reasonLabel = (deptId, status, code) =>
   (code ? (deptOf(deptId)?.reasons?.[status]?.find((r) => r.code === code)?.label || code) : '');
-// 顏色一定要是 #RRGGBB，避免設定打錯把畫面弄壞
-const safeColor = (hex) => (/^#[0-9a-f]{6}$/i.test(hex || '') ? hex : '#9AA0A6');
+const statusList = (deptId) => deptOf(deptId)?.statuses || [];
 // 這個狀態從什麼時候開始（毫秒）
 const sinceMs = (machineId) => statusMap.get(machineId)?.data?.statusSince?.toMillis?.() ?? Date.now();
-
-// 狀態底色上的字色：白字、深色字選對比比較高的那個（黃、橘、淺灰底會用深色字）
-function textColorOn(hex) {
-  const n = parseInt(safeColor(hex).slice(1), 16);
-  const channel = (v) => {
-    const c = v / 255;
-    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
-  };
-  const lum = 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
-  const inkLum = 0.0175;   // 深色字 #1D262D 的亮度
-  return (1.05 / (lum + 0.05)) >= ((lum + 0.05) / (inkLum + 0.05)) ? '#FFFFFF' : '#1D262D';
-}
-
-function colorStyle(hex) {
-  const color = safeColor(hex);
-  return `--c:${color};--fg:${textColorOn(color)}`;
-}
+// 卡片顏色（colorStyle）、字色的算法在 common.js（功能⑥搬過去給機台頁共用）
 
 // 誰能切換這台的狀態
 function canEdit(machine) {
@@ -222,6 +107,7 @@ if (ctx.error) {
     await loadMaster();
     setupFilters();
     setupHistoryModule();
+    setupPanelModule();
     listenStatus();
     $('state').hidden = true;
     $('panel').hidden = false;
@@ -280,7 +166,7 @@ function listenStatus() {
     });
     setConn(!snap.metadata.fromCache);
     render();
-    if (current) renderCurrent(machineOf(current));   // 面板開著時，同步更新「目前」那一行
+    refreshStatusPanel();                             // 面板開著時，同步更新「目前」那一行
     refreshHistory();                                 // 履歷開著時，同步更新（沒開就什麼都不做）
   }, (err) => {
     setConn(false);
@@ -386,116 +272,14 @@ setInterval(() => {
 
 $('floors').addEventListener('click', (event) => {
   const card = event.target.closest('.m-card');
-  if (card) openPanel(card.dataset.id);
+  if (card) openStatusPanel(card.dataset.id);
 });
 $('alerts').addEventListener('click', (event) => {
   const chip = event.target.closest('.alert-chip');
-  if (chip) openPanel(chip.dataset.id);
+  if (chip) openStatusPanel(chip.dataset.id);
 });
-
-// ---------- 機台面板 ----------
-function openPanel(machineId) {
-  const machine = machineOf(machineId);
-  if (!machine) return;
-  current = machineId;
-  const s = statusMap.get(machineId)?.data;
-  picked = { status: s?.status || '', reason: s?.reasonCode || '' };
-
-  $('mp-title').textContent = machine.machineId;
-  $('mp-sub').textContent = `${machine.category}，${machine.brand} ${machine.model}，${floorName(machine.floorId)}`;
-  renderCurrent(machine);
-
-  const editable = canEdit(machine);
-  $('mp-edit').hidden = !editable;
-  $('mp-save').hidden = !editable;
-  $('mp-readonly').hidden = editable;
-  $('mp-readonly').textContent = me.role === 'viewer' ? '檢視帳號只能查看。' : '你不負責這個單位，只能查看。';
-  if (editable) {
-    renderStatusButtons(machine);
-    renderReasonButtons(machine);
-    $('mp-part').value = s?.partNo || '';
-    $('mp-op').value = s?.opNo || '';
-    $('mp-note').value = s?.note || '';
-  }
-  $('mp-error').textContent = '';
-  $('dlg-machine').showModal();
-}
-
-function renderCurrent(machine) {
-  if (!machine) return;
-  const entry = statusMap.get(machine.machineId);
-  if (!entry) {
-    $('mp-current').textContent = '目前：未設定';
-    return;
-  }
-  const s = entry.data;
-  const def = statusDef(machine.deptId, s.status);
-  const reason = reasonLabel(machine.deptId, s.status, s.reasonCode);
-  const since = sinceMs(machine.machineId);
-  $('mp-current').innerHTML =
-    `目前：<b>${escapeHtml(def?.label || s.status)}</b>${reason ? `（${escapeHtml(reason)}）` : ''}，`
-    + `已經 <span class="js-dur" data-since="${since}">${formatDuration(Date.now() - since)}</span><br>`
-    + `<span class="muted">${escapeHtml(s.updatedByName || '')}（${escapeHtml(s.updatedByEmpNo || '')}）${escapeHtml(formatTime(s.updatedAt))} 更新`
-    + `${entry.pending ? '，同步中…' : ''}</span>`;
-}
-
-function renderStatusButtons(machine) {
-  const defs = deptOf(machine.deptId)?.statuses || [];
-  $('mp-statuses').innerHTML = defs.map((d) =>
-    `<button type="button" class="st-btn" data-code="${escapeHtml(d.code)}" aria-pressed="${picked.status === d.code}" style="${colorStyle(d.color)}">${escapeHtml(d.label)}</button>`
-  ).join('');
-}
-
-function renderReasonButtons(machine) {
-  const need = statusDef(machine.deptId, picked.status)?.needsReason || 'none';
-  const list = activeReasons(machine.deptId, picked.status);
-  const show = need !== 'none' && list.length > 0;
-  $('mp-reason-box').hidden = !show;
-  if (!show) {
-    picked.reason = '';
-    $('mp-reasons').innerHTML = '';
-    return;
-  }
-  $('mp-reason-legend').textContent = need === 'required' ? '原因（必選）' : '原因（可不選）';
-  $('mp-reasons').innerHTML = list.map((r) =>
-    `<button type="button" class="rs-btn" data-code="${escapeHtml(r.code)}" aria-pressed="${picked.reason === r.code}">${escapeHtml(r.label)}</button>`
-  ).join('');
-}
-
-$('mp-statuses').addEventListener('click', (event) => {
-  const button = event.target.closest('.st-btn');
-  if (!button) return;
-  const machine = machineOf(current);
-  if (picked.status !== button.dataset.code) {
-    picked = { status: button.dataset.code, reason: '' };   // 換了狀態，原因重選
-  }
-  renderStatusButtons(machine);
-  renderReasonButtons(machine);
-  $('mp-error').textContent = '';
-});
-
-$('mp-reasons').addEventListener('click', (event) => {
-  const button = event.target.closest('.rs-btn');
-  if (!button) return;
-  const machine = machineOf(current);
-  const need = statusDef(machine.deptId, picked.status)?.needsReason;
-  // 選填的原因再點一次可以取消；必選的只能換別的
-  picked.reason = (picked.reason === button.dataset.code && need !== 'required') ? '' : button.dataset.code;
-  renderReasonButtons(machine);
-  $('mp-error').textContent = '';
-});
-
-$('mp-close').addEventListener('click', () => $('dlg-machine').close());
-$('dlg-machine').addEventListener('close', () => { current = null; });
 
 // ---------- 異動履歷（功能④，畫面和讀取在 history.js） ----------
-
-// 面板「異動履歷」：先關面板，再打開這台的履歷
-$('mp-history').addEventListener('click', () => {
-  const machineId = current;            // 關面板時 current 會被清掉，先記下來
-  $('dlg-machine').close();
-  if (machineId) openHistory(machineId);
-});
 
 // 把資料庫函式和看板的資料傳給 history.js（它不自己 import common.js，避免版本號對不上）
 function setupHistoryModule() {
@@ -518,90 +302,20 @@ function setupHistoryModule() {
   });
 }
 
-// ---------- 切換狀態：目前狀態＋事件紀錄一次寫入 ----------
-$('machine-form').addEventListener('submit', async (event) => {
-  event.preventDefault();
-  const machine = machineOf(current);
-  if (!machine || !canEdit(machine)) return;
-  const entry = statusMap.get(machine.machineId);
-  const prev = entry?.data || null;
-  const fail = (message) => { $('mp-error').textContent = message; };
-
-  if (entry?.pending) return fail('上一筆還在同步，請等幾秒再存');
-  const def = statusDef(machine.deptId, picked.status);
-  if (!def) return fail('請選擇狀態');
-  if (def.needsReason === 'required' && activeReasons(machine.deptId, picked.status).length && !picked.reason) {
-    return fail('這個狀態要選原因');
-  }
-  const reasonCode = picked.reason || '';
-  const partNo = $('mp-part').value.trim();
-  const opNo = $('mp-op').value.trim();
-  const note = $('mp-note').value.trim();
-  const sameAsNow = prev && prev.status === picked.status && (prev.reasonCode || '') === reasonCode
-    && (prev.partNo || '') === partNo && (prev.opNo || '') === opNo && (prev.note || '') === note;
-  if (sameAsNow) {
-    $('dlg-machine').close();
-    toast('沒有變更');
-    return;
-  }
-  if (!shiftSetting) return fail('找不到班別設定，請管理者回首頁按「建立預設資料」');
-  const { prodDate, shiftId } = prodDateAndShift(new Date(), shiftSetting);
-  if (!shiftId) return fail('現在的時間不在任何班別裡，請檢查班別設定');
-  // 狀態或原因有變 → 重新計時；只改料號、製程、備註 → 沿用原本的開始時間
-  const restart = !prev || prev.status !== picked.status || (prev.reasonCode || '') !== reasonCode;
-  fail('');
-
-  setBusy($('mp-save'), true, '儲存中…');
-  try {
-    const empNo = myEmpNo();
-    const batch = writeBatch(db);   // 兩筆一起寫，不會只寫一半
-    const eventRef = doc(collection(db, 'machineEvents'));   // 事件紀錄用自動編號
-    batch.set(eventRef, {
-      eventType: 'statusChange',
-      machineId: machine.machineId,
-      deptId: machine.deptId,
-      fromStatus: prev ? prev.status : null,            // 第一次設定時是 null
-      fromStatusSince: prev ? prev.statusSince : null,
-      toStatus: picked.status,
-      reasonCode, note, partNo, opNo,
-      prodDate, shiftId,                                // 生產日、班別在寫入當下算好
-      createdAt: serverTimestamp(),
-      createdByEmpNo: empNo,
-      createdByName: me.name
-    });
-    batch.set(doc(db, 'machineStatus', machine.machineId), {
-      machineId: machine.machineId,
-      deptId: machine.deptId,
-      status: picked.status,
-      reasonCode, note, partNo, opNo,
-      statusSince: restart ? serverTimestamp() : prev.statusSince,
-      lastEventId: eventRef.id,                         // 指向這次的事件紀錄（規則會檢查）
-      updatedAt: serverTimestamp(),
-      updatedByEmpNo: empNo,
-      updatedByName: me.name
-    });
-
-    // 網路慢的時候：6 秒後先關面板，資料會在連線恢復後自動送出
-    const commit = batch.commit();
-    const slow = new Promise((resolve) => { setTimeout(() => resolve('slow'), 6000); });
-    const result = await Promise.race([commit.then(() => 'ok'), slow]);
-    $('dlg-machine').close();
-    if (result === 'ok') {
-      toast(`${machine.machineId} 已改成${def.label}`);
-    } else {
-      toast('網路不穩：已先記在這台裝置，連線恢復後會自動送出（這個頁面先不要關）', 'error');
-      commit
-        .then(() => toast(`${machine.machineId} 已送出`))
-        .catch((err) => toast(`${machine.machineId} 沒有存進去：${errorMessage(err)}`, 'error'));
-    }
-  } catch (err) {
-    fail(err?.code === 'permission-denied'
-      ? '存不進去：這台可能剛被別人改過，或你沒有權限。請關掉面板，重新打開再試一次。'
-      : errorMessage(err));
-  } finally {
-    setBusy($('mp-save'), false);
-  }
-});
+// ---------- 切換狀態（功能⑥起在 status-panel.js，機台頁也用同一份） ----------
+// 把資料庫函式和看板的資料傳給 status-panel.js（它不自己 import common.js，避免版本號對不上）
+function setupPanelModule() {
+  setupStatusPanel({
+    db, collection, doc, writeBatch, serverTimestamp,
+    myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime, formatDuration, prodDateAndShift,
+    machineOf, floorName, statusList, statusDef, activeReasons, reasonLabel, colorStyle,
+    getStatus: (machineId) => statusMap.get(machineId),   // 看板即時監聽到的目前狀態
+    getShiftSetting: () => shiftSetting,
+    getMe: () => me,
+    canEdit,                                              // 管理者全部單位、維護員負責單位
+    openHistory                                           // 面板「異動履歷」按鈕
+  });
+}
 </script>
 </body>
 </html>

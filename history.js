@@ -1,6 +1,8 @@
 // ============================================================
 // history.js — 單台機異動履歷（功能④）＋修正紀錄（功能⑤）
-//   打開方式：看板點卡片 → 面板「異動履歷」；蓋在看板上面，按「關閉」回到看板
+//   打開方式：看板點卡片 → 面板「異動履歷」；機台頁（功能⑥）按「異動履歷」
+//     蓋在原本的頁面上面，按「關閉」回到原本的頁面
+//   功能⑥：履歷、修正的畫面（HTML）從看板搬到這個檔案，頁面不用自己寫
 //   讀：machineEvents（這台機的事件紀錄），新到舊，一次 pageSize 筆（平常 30 筆）
 //     ‧最新一批用即時監聽：這台機有新異動，自動加到最上面（每筆新異動只多讀 1 次）
 //     ‧「載入更早」「跳到日期」用一次性讀取，每按一次讀 pageSize 筆
@@ -15,13 +17,83 @@
 //   需要的索引（在 Firebase 主控台建立）：
 //     ‧machineEvents ＝ machineId 升序 ＋ createdAt 降序（異動履歷，功能④）
 //     ‧machineEvents ＝ machineId 升序 ＋ createdAt 升序（修正時往後找連帶的紀錄，功能⑤）
-//   注意：這個檔案不 import common.js。資料庫函式和看板的資料都由 board.html
+//   注意：這個檔案不 import common.js。資料庫函式和頁面的資料都由頁面（board.html、machine.html）
 //         用 setupHistory() 傳進來，避免兩個檔案寫的版本號（?v=）不同，
 //         讓 Firebase 被載入兩次而整頁出錯。
 // ============================================================
 
 const $ = (id) => document.getElementById(id);
-let deps = null;   // board.html 傳進來的資料庫函式、看板資料和小工具
+let deps = null;   // 頁面傳進來的資料庫函式、資料和小工具
+
+// 履歷、修正的畫面：頁面裡沒有的話，setupHistory() 會自動加到頁面最後面（功能⑥）
+const HISTORY_HTML = `
+<!-- ========== 異動履歷：一台機的狀態變更紀錄（功能④，程式在 history.js） ========== -->
+<dialog id="dlg-history" aria-labelledby="h-title">
+  <header class="hist-head">
+    <div class="hist-head-text">
+      <h2 id="h-title" class="hist-title"></h2>
+      <p id="h-sub" class="hist-sub"></p>
+    </div>
+    <button id="h-close" class="btn" type="button" autofocus>關閉</button>
+  </header>
+  <div class="hist-body">
+    <!-- 目前狀態（跟看板一樣即時更新） -->
+    <div id="h-current" class="hist-current"></div>
+    <div class="hist-tools">
+      <label class="field hist-date"><span>跳到日期（生產日）</span><input id="h-date" type="date"></label>
+      <button id="h-go" class="btn" type="button">查詢</button>
+      <button id="h-latest" class="btn" type="button" hidden>回到最新</button>
+    </div>
+    <p id="h-mode" class="muted hist-mode" hidden></p>
+    <!-- 依生產日分組的異動清單 -->
+    <div id="h-list"></div>
+    <div class="hist-foot">
+      <button id="h-more" class="btn block" type="button" hidden>載入更早的紀錄</button>
+      <p id="h-end" class="muted hist-end" hidden>沒有更早的紀錄</p>
+    </div>
+  </div>
+</dialog>
+
+<!-- ========== 修正紀錄：改錯的原因、料號、製程、備註（功能⑤，程式在 history.js） ==========
+     原本那筆不動，另外新增一筆修正紀錄；狀態和時間不能改 -->
+<dialog id="dlg-fix" aria-labelledby="fx-title">
+  <form id="fix-form" class="dialog-body" novalidate>
+    <h2 id="fx-title" class="fx-title">修正紀錄</h2>
+    <!-- 要修正的是哪一筆：時間、班別、狀態、誰記的 -->
+    <div id="fx-target" class="fx-target"></div>
+
+    <!-- 修改畫面 -->
+    <div id="fx-edit">
+      <p class="muted">狀態和時間不能改；狀態按錯，請再切一次正確的狀態。</p>
+      <fieldset id="fx-reason-box" class="field" hidden>
+        <legend id="fx-reason-legend">原因</legend>
+        <div id="fx-reasons" class="reason-grid"></div>
+      </fieldset>
+      <div class="form-grid">
+        <label class="field"><span>料號</span><input id="fx-part" type="text" maxlength="40" spellcheck="false" autocomplete="off"></label>
+        <label class="field"><span>製程</span><input id="fx-op" type="text" maxlength="20" spellcheck="false" autocomplete="off" placeholder="例：OP10"></label>
+      </div>
+      <label class="field"><span>備註</span><input id="fx-note" type="text" maxlength="100" autocomplete="off"></label>
+      <fieldset class="field">
+        <legend>修正理由</legend>
+        <div id="fx-why" class="reason-grid"></div>
+      </fieldset>
+      <label class="field"><span id="fx-detail-label">補充說明（可不填）</span><input id="fx-detail" type="text" maxlength="60" autocomplete="off"></label>
+    </div>
+
+    <!-- 確認畫面：改前→改後、連帶幾筆、看板會不會跟著變 -->
+    <div id="fx-confirm" class="fx-confirm" hidden></div>
+
+    <!-- 缺索引時的說明（管理者有建立連結） -->
+    <div id="fx-index" class="hist-error fx-index" hidden></div>
+    <p id="fx-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="fx-cancel" class="btn" type="button">取消</button>
+      <button id="fx-save" class="btn primary" type="submit">存檔</button>
+    </div>
+  </form>
+</dialog>
+`;
 
 const state = {
   machineId: '',
@@ -82,12 +154,13 @@ const byCreatedAsc = (a, b) => ms(a.data.createdAt) - ms(b.data.createdAt) || (a
 const shiftBlock = (msValue) => Math.floor(msValue / SHIFT_MS);
 
 // ============================================================
-// 給 board.html 呼叫的三個函式
+// 給頁面（board.html、machine.html）呼叫的三個函式
 // ============================================================
 
-// 看板讀完主檔後呼叫一次：把要用的函式、資料傳進來，並綁定按鈕
+// 頁面讀完主檔後呼叫一次：把要用的函式、資料傳進來，並綁定按鈕
 export function setupHistory(d) {
   deps = d;
+  if (!$('dlg-history')) document.body.insertAdjacentHTML('beforeend', HISTORY_HTML);
   $('h-close').addEventListener('click', () => $('dlg-history').close());
   $('dlg-history').addEventListener('close', stop);   // 關掉時停止監聽，不再讀資料庫
   $('h-more').addEventListener('click', loadMore);

@@ -38,7 +38,11 @@
       </section>
 
       <div class="toolbar">
-        <button id="btn-add-machine" class="btn primary" type="button">新增設備</button>
+        <div class="toolbar" style="margin: 0">
+          <button id="btn-add-machine" class="btn primary" type="button">新增設備</button>
+          <!-- 功能⑥：印機台的 QR 標籤（帶入下面選的單位、樓層） -->
+          <a id="btn-labels" class="btn" href="labels.html">列印 QR 標籤</a>
+        </div>
         <label class="check">
           <input id="m-show-off" type="checkbox">
           <span>顯示不使用的</span>
@@ -279,6 +283,18 @@ function renderMachines() {
 
 for (const id of ['m-filter-dept', 'm-filter-floor', 'm-show-off']) {
   $(id).addEventListener('change', renderMachines);
+}
+
+// 功能⑥：「列印 QR 標籤」帶入目前選的單位、樓層
+function updateLabelsLink() {
+  const params = new URLSearchParams();
+  if ($('m-filter-dept').value) params.set('deptId', $('m-filter-dept').value);
+  if ($('m-filter-floor').value) params.set('floorId', $('m-filter-floor').value);
+  const query = params.toString();   // 舊版 iPad 沒有 params.size，用 toString() 判斷
+  $('btn-labels').href = `labels.html${query ? `?${query}` : ''}`;
+}
+for (const id of ['m-filter-dept', 'm-filter-floor']) {
+  $(id).addEventListener('change', updateLabelsLink);
 }
 $('m-search').addEventListener('input', renderMachines);
 $('machine-list').addEventListener('click', (event) => {

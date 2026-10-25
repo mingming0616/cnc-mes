@@ -10,6 +10,13 @@
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
 <!-- ?v=2：style.css 有改版時把數字加 1，瀏覽器才會抓新的樣式 -->
 <link rel="stylesheet" href="style.css?v=2">
+<style>
+  /* 功能⑥：從機台頁來時，登入框上方的提醒（只有這頁用，不另外改 style.css） */
+  .login-next {
+    margin: 0; padding: 10px 12px; font-size: 15px;
+    background: var(--sunk); border-left: 4px solid var(--ink); border-radius: 4px;
+  }
+</style>
 </head>
 <body>
 
@@ -26,6 +33,8 @@
       <p class="brand brand-lg">CNC MES</p>
       <p class="plate-sub">工廠製造管理執行系統</p>
     </div>
+    <!-- 功能⑥：從機台頁（掃 QR）過來時才出現 -->
+    <p id="login-next" class="login-next" hidden></p>
     <label class="field">
       <span>工號</span>
       <input id="login-empno" type="text" autocomplete="username" autocapitalize="characters" spellcheck="false" maxlength="10">
@@ -82,6 +91,8 @@
 <script type="module">
 // ============================================================
 // index.html：登入畫面＋首頁
+//   功能⑥：網址帶 ?next=machine&machineId=設備編號（機台頁沒登入時帶過來）
+//     → 登入後直接回到那台機的機台頁，不進首頁
 // ============================================================
 import {
   db, doc, getDoc, writeBatch, serverTimestamp,
@@ -152,6 +163,19 @@ const DEFAULT_SHIFTS = {
 
 let pendingMessage = '';   // 下次顯示登入畫面時要出現的提示
 
+// 功能⑥：從機台頁來的，登入後回到那台機（只接受機台頁，設備編號格式不對就照常進首頁）
+const returnUrl = (() => {
+  const params = new URLSearchParams(location.search);
+  if (params.get('next') !== 'machine') return '';
+  const id = String(params.get('machineId') || '').trim().toUpperCase();
+  return /^[A-Z0-9][A-Z0-9-]{1,11}$/.test(id) ? `machine.html?machineId=${encodeURIComponent(id)}` : '';
+})();
+if (returnUrl) {
+  const id = new URLSearchParams(returnUrl.split('?')[1]).get('machineId');
+  $('login-next').textContent = `登入後會回到機台 ${id}。個人手機請勾「保持登入」，之後掃碼就不用再登入。`;
+  $('login-next').hidden = false;
+}
+
 // 別的頁面把人登出時，會在網址帶 ?msg=inactive 回來
 if (new URLSearchParams(location.search).get('msg') === 'inactive') {
   pendingMessage = '帳號未啟用，請找管理者';
@@ -186,6 +210,10 @@ watchAuth(async (user) => {
       await logout();   // 登出後會再跑一次這段，顯示登入畫面和提示
       return;
     }
+    if (returnUrl) {     // 功能⑥：從機台頁來的，直接回到那台機
+      location.replace(returnUrl);
+      return;
+    }
     renderHome(profile);
     show('view-home');
   } catch (err) {
@@ -209,7 +237,7 @@ $('login-form').addEventListener('submit', async (event) => {
   try {
     await login(empNo, password, $('login-keep').checked);
     $('login-password').value = '';
-    // 登入成功後，上面的 watchAuth 會自動切到首頁
+    // 登入成功後，上面的 watchAuth 會自動切到首頁（從機台頁來的，回到那台機）
   } catch (err) {
     setLoginError(errorMessage(err));
   } finally {

@@ -1,0 +1,301 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QR 標籤列印｜CNC MES</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=2">
+<style>
+  /* ============================================================
+     標籤列印頁專用樣式（功能⑥，只有這頁用，不另外改 style.css）
+     標籤尺寸用公釐（mm）寫死，印出來才會是實際大小；A4 直式、四邊留 10 mm
+       大：60 × 75 mm，QR 45 mm（含四周白邊；黑色方塊約 39 mm），一張 A4 印 9 張（3 × 3）
+       小：45 × 55 mm，QR 32 mm（含四周白邊；黑色方塊約 28 mm），一張 A4 印 16 張（4 × 4）
+     ============================================================ */
+  @page { size: A4 portrait; margin: 10mm; }
+
+  .pick-list {
+    list-style: none; margin: 0 0 18px; padding: 0;
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 0 12px;
+    background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; padding: 6px 14px;
+  }
+  .pick-list .check { width: 100%; }
+  .pick-id { font-family: var(--font-code); font-size: 20px; font-weight: 600; letter-spacing: .04em; }
+  .pick-empty { grid-column: 1 / -1; padding: 12px 0; color: var(--ink-soft); }
+
+  .print-tips ul { margin: 0; padding-left: 1.2em; }
+  .print-tips li + li { margin-top: 4px; }
+  .url-sample {
+    display: block; margin: 4px 0 10px; padding: 8px 10px;
+    background: #fff; border: 1px solid var(--rule-strong); border-radius: var(--radius);
+    font-family: var(--font-code); font-size: 16px; word-break: break-all;
+  }
+  .preview-title { margin-top: 8px; }
+
+  /* 一頁 A4（扣掉四邊 10 mm 後是 190 × 277 mm）
+     名稱用 lb-sheet：style.css 已經有 .sheet（主檔維護的表單外框），不能撞名 */
+  .sheets { overflow: hidden; }
+  .lb-sheet {
+    width: 190mm; height: 277mm; box-sizing: border-box;
+    display: grid; align-content: start; justify-content: start;
+    background: #fff; color: #000;
+  }
+  .lb-sheet.size-L { grid-template-columns: repeat(3, 60mm); grid-auto-rows: 75mm; gap: 5mm; }
+  .lb-sheet.size-S { grid-template-columns: repeat(4, 45mm); grid-auto-rows: 55mm; gap: 3mm 3.3mm; }
+
+  /* 一張標籤：虛線是裁切線 */
+  .label {
+    display: grid; justify-items: center; align-content: center; gap: 0;
+    border: 0.3mm dashed #8B969F; text-align: center; overflow: hidden;
+  }
+  .label svg { display: block; }
+  .lb-id { font-family: var(--font-code); font-weight: 700; line-height: 1; letter-spacing: .03em; }
+  .lb-meta, .lb-hint { line-height: 1.25; }
+  .size-L .label svg { width: 45mm; height: 45mm; }
+  .size-L .lb-id { font-size: 30pt; margin-top: 1mm; }
+  .size-L .lb-meta { font-size: 9pt; margin-top: 1.5mm; }
+  .size-L .lb-hint { font-size: 7.5pt; margin-top: .8mm; }
+  .size-S .label svg { width: 32mm; height: 32mm; }
+  .size-S .lb-id { font-size: 20pt; margin-top: .8mm; }
+  .size-S .lb-meta { font-size: 7pt; margin-top: 1mm; }
+  .size-S .lb-hint { font-size: 6pt; margin-top: .5mm; }
+
+  @media screen {
+    /* 預覽：整頁 A4 依畫面寬度縮小顯示（--k 由程式算） */
+    .lb-sheet { zoom: var(--k, 1); margin: 0 0 16px; outline: 1px solid var(--rule-strong); }
+  }
+  @media print {
+    body { background: #fff; }
+    .no-print { display: none !important; }
+    .page { max-width: none; margin: 0; padding: 0; }
+    .lb-sheet { zoom: 1; break-after: page; }
+    .lb-sheet:last-child { break-after: auto; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar no-print">
+  <a class="btn ghost" href="master.html">回主檔維護</a>
+  <span class="topbar-title">QR 標籤列印</span>
+</header>
+
+<main class="page">
+  <!-- 載入中、沒有權限、讀取錯誤時顯示這裡 -->
+  <div id="state" class="state no-print">載入中…</div>
+
+  <section id="panel" hidden>
+    <div class="no-print">
+      <div class="filters">
+        <label class="field"><span>單位</span><select id="f-dept"></select></label>
+        <label class="field"><span>樓層</span><select id="f-floor"></select></label>
+        <label class="field"><span>標籤大小</span>
+          <select id="f-size">
+            <option value="L">大：6 × 7.5 公分（一張 A4 印 9 張）</option>
+            <option value="S">小：4.5 × 5.5 公分（一張 A4 印 16 張）</option>
+          </select>
+        </label>
+      </div>
+      <div class="toolbar">
+        <div class="toolbar" style="margin: 0">
+          <button id="btn-all" class="btn" type="button">全選</button>
+          <button id="btn-none" class="btn" type="button">全不選</button>
+        </div>
+        <button id="btn-print" class="btn primary" type="button">列印</button>
+      </div>
+      <p id="count" class="muted"></p>
+      <ul id="pick" class="pick-list" aria-label="要印的設備"></ul>
+
+      <section class="hint print-tips">
+        <h2>列印前確認</h2>
+        <p class="muted">貼紙網址（每台換成自己的設備編號）</p>
+        <code id="url-sample" class="url-sample"></code>
+        <p id="url-warn" class="form-error" hidden></p>
+        <ul>
+          <li>紙張選 A4、縮放 100%，不要勾「符合頁面大小」。</li>
+          <li id="tip-measure">先印一張，用尺量 QR 黑色方塊的寬度。差很多就是被縮放了，調好再印。</li>
+          <li>先剪成一張一張再護貝，四邊留 3～5 mm 膠膜，切削液才不會滲進去；霧面護貝膜比較不反光。</li>
+          <li>貼之前用手機掃一次，確認打開的是同一台機。</li>
+        </ul>
+      </section>
+      <h2 class="preview-title">預覽</h2>
+    </div>
+    <!-- 實際印出來的頁面 -->
+    <div id="sheets" class="sheets"></div>
+  </section>
+</main>
+
+<script type="module">
+// ============================================================
+// labels.html：機台 QR 標籤列印（功能⑥，只有管理者能用）
+//   讀：departments、floors、machines 各讀一次（跟主檔維護一樣）
+//   只印「使用中」的設備；每張標籤：QR、設備編號、單位和樓層、掃描提示
+//   QR 內容：這個網站的 machine.html?machineId=設備編號&openExternalBrowser=1
+//     ‧網址取自目前打開這頁的網站，搬到公司內部伺服器時，在那邊打開這頁印就對了
+//     ‧最後的 openExternalBrowser=1：用 LINE 掃碼時，改用手機原本的瀏覽器打開
+//   QR 產生程式在 qrcode.js（不連外部網站）；qrcode.js 改版時把下面網址的 v 數字加 1
+// ============================================================
+import { db, collection, getDocs, requireUser, errorMessage, escapeHtml, toast } from './common.js';
+import { qrSvg, qrMatrix } from './qrcode.js?v=1';
+
+const $ = (id) => document.getElementById(id);
+const PER_SHEET = { L: 9, S: 16 };   // 一張 A4 印幾張
+const QR_MM = { L: 45, S: 32 };      // QR 含四周白邊的寬度（公釐），要跟上面 CSS 的一樣
+const SHEET_WIDTH_MM = 190;
+
+let machines = [];               // 使用中的設備（依樓層、排列順序、編號）
+let floors = [];
+let depts = [];
+const unchecked = new Set();     // 被取消勾選的設備編號
+
+const naturalCompare = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'en', { numeric: true });
+const bySortOrder = (idKey) => (a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || naturalCompare(a[idKey], b[idKey]);
+const floorName = (id) => floors.find((f) => f.floorId === id)?.name || id || '';
+const deptName = (id) => depts.find((d) => d.id === id)?.name || id || '';
+
+// 貼紙網址：這個網站的機台頁
+const BASE = (() => {
+  const url = new URL('machine.html', location.href);
+  url.search = '';
+  url.hash = '';
+  return url.href;
+})();
+const machineUrl = (machineId) => `${BASE}?machineId=${encodeURIComponent(machineId)}&openExternalBrowser=1`;
+
+// ---------- 權限檢查：沒登入會被帶回登入頁 ----------
+const ctx = await requireUser({ adminOnly: true });
+if (ctx.error) {
+  $('state').textContent = errorMessage(ctx.error);
+} else if (ctx.forbidden) {
+  $('state').innerHTML = '<p>沒有權限：QR 標籤列印只有管理者能使用。</p><a class="btn" href="index.html">回首頁</a>';
+} else {
+  try {
+    await loadAll();
+    setup();
+    render();   // 先畫好再顯示：畫面出錯時，錯誤訊息才看得到
+    $('state').hidden = true;
+    $('panel').hidden = false;
+  } catch (err) {
+    $('state').textContent = errorMessage(err);
+  }
+}
+
+async function loadAll() {
+  const [machineSnap, floorSnap, deptSnap] = await Promise.all([
+    getDocs(collection(db, 'machines')),
+    getDocs(collection(db, 'floors')),
+    getDocs(collection(db, 'departments'))
+  ]);
+  floors = floorSnap.docs.map((d) => ({ ...d.data(), floorId: d.id })).sort(bySortOrder('floorId'));
+  depts = deptSnap.docs.map((d) => ({ ...d.data(), id: d.id })).sort(bySortOrder('id'));
+  const floorRank = (id) => {
+    const index = floors.findIndex((f) => f.floorId === id);
+    return index < 0 ? 999 : index;
+  };
+  machines = machineSnap.docs
+    .map((d) => ({ ...d.data(), machineId: d.id }))
+    .filter((m) => m.active === true)
+    .sort((a, b) => floorRank(a.floorId) - floorRank(b.floorId)
+      || (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999)
+      || naturalCompare(a.machineId, b.machineId));
+}
+
+function setup() {
+  const params = new URLSearchParams(location.search);
+  const fill = (select, items, selected) => {
+    select.innerHTML = items.map(([value, label]) =>
+      `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`).join('');
+    if ([...select.options].some((o) => o.value === selected)) select.value = selected;
+  };
+  fill($('f-dept'), [['', '全部單位'], ...depts.map((d) => [d.id, d.name || d.id])], params.get('deptId') || '');
+  fill($('f-floor'), [['', '全部樓層'], ...floors.filter((f) => f.active === true).map((f) => [f.floorId, f.name])],
+    params.get('floorId') || '');
+  for (const id of ['f-dept', 'f-floor', 'f-size']) $(id).addEventListener('change', render);
+
+  $('pick').addEventListener('change', (event) => {
+    const box = event.target.closest('input[type="checkbox"]');
+    if (!box) return;
+    if (box.checked) unchecked.delete(box.value); else unchecked.add(box.value);
+    renderSheets();
+  });
+  $('btn-all').addEventListener('click', () => { listed().forEach((m) => unchecked.delete(m.machineId)); render(); });
+  $('btn-none').addEventListener('click', () => { listed().forEach((m) => unchecked.add(m.machineId)); render(); });
+  $('btn-print').addEventListener('click', async () => {
+    if (!picked().length) { toast('請至少勾一台', 'error'); return; }
+    try { await document.fonts.ready; } catch { /* 字型沒載到也照樣印 */ }
+    window.print();
+  });
+
+  $('url-sample').textContent = machineUrl('T01').replace('T01', '設備編號');
+  // 黑色方塊的寬度：QR 含白邊的寬度 × 格數 ÷（格數＋兩邊白邊各 4 格）；網址長短會影響格數
+  const n = qrMatrix(machineUrl(machines[0]?.machineId || 'T01'), { ecl: 'Q' }).size;
+  const blackCm = (mm) => (mm * n / (n + 8) / 10).toFixed(1);
+  $('tip-measure').textContent = `先印一張，用尺量 QR 黑色方塊的寬度：大的約 ${blackCm(QR_MM.L)} 公分、`
+    + `小的約 ${blackCm(QR_MM.S)} 公分。差很多就是被縮放了，調好再印。`;
+  if (location.protocol !== 'https:') {
+    $('url-warn').textContent = `注意：這頁不是用 https 打開的，印出來的 QR 會指到 ${location.origin}。確定這是正式網址再印。`;
+    $('url-warn').hidden = false;
+  }
+  window.addEventListener('resize', fitPreview);
+}
+
+// 依單位、樓層篩選後列出來的設備
+function listed() {
+  const deptId = $('f-dept').value;
+  const floorId = $('f-floor').value;
+  return machines.filter((m) => (!deptId || m.deptId === deptId) && (!floorId || m.floorId === floorId));
+}
+// 列出來而且有勾的（要印的）
+function picked() {
+  return listed().filter((m) => !unchecked.has(m.machineId));
+}
+
+function render() {
+  const list = listed();
+  $('pick').innerHTML = list.length
+    ? list.map((m) => `
+      <li><label class="check">
+        <input type="checkbox" value="${escapeHtml(m.machineId)}"${unchecked.has(m.machineId) ? '' : ' checked'}>
+        <span class="pick-id">${escapeHtml(m.machineId)}</span>
+      </label></li>`).join('')
+    : '<li class="pick-empty">沒有符合條件的使用中設備。</li>';
+  renderSheets();
+}
+
+function renderSheets() {
+  const size = $('f-size').value === 'S' ? 'S' : 'L';
+  const items = picked();
+  const perSheet = PER_SHEET[size];
+  const sheets = Math.ceil(items.length / perSheet);
+  $('count').textContent = `已勾 ${items.length} 台，共 ${sheets} 張 A4`;
+  const pages = [];
+  for (let i = 0; i < items.length; i += perSheet) {
+    pages.push(`<div class="lb-sheet size-${size}">${items.slice(i, i + perSheet).map(labelHtml).join('')}</div>`);
+  }
+  $('sheets').innerHTML = pages.join('');
+  fitPreview();
+}
+
+function labelHtml(m) {
+  const meta = [deptName(m.deptId), floorName(m.floorId)].filter(Boolean).join('，');
+  return `<div class="label" data-id="${escapeHtml(m.machineId)}">`
+    + qrSvg(machineUrl(m.machineId), { ecl: 'Q', title: m.machineId })
+    + `<div class="lb-id">${escapeHtml(m.machineId)}</div>`
+    + `<div class="lb-meta">${escapeHtml(meta)}</div>`
+    + '<div class="lb-hint">CNC MES　手機相機掃描</div>'
+    + '</div>';
+}
+
+// 預覽：A4 依畫面寬度縮小（列印時不縮）
+function fitPreview() {
+  const box = $('sheets');
+  const widthPx = SHEET_WIDTH_MM * 96 / 25.4;
+  const k = Math.min(1, (box.clientWidth || widthPx) / widthPx);
+  box.style.setProperty('--k', String(Math.round(k * 1000) / 1000));
+}
+</script>
+</body>
+</html>

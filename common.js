@@ -3,6 +3,8 @@
 //   ‧Firebase 初始化（SDK 版本只寫在這個檔案，升級只改下面三行網址）
 //   ‧登入、登出、讀取本人的人員資料、頁面權限檢查
 //   ‧修改密碼、錯誤訊息翻成中文、畫面小工具
+//   ‧功能⑥：狀態顏色的字色（從看板搬來，機台頁也用）、守門員可以帶「登入後回到哪裡」
+//     都只有新增，原本用 common.js 的頁面不用改
 // ============================================================
 import { firebaseConfig } from './config.js';
 import { initializeApp } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-app.js';
@@ -86,12 +88,15 @@ export async function loadProfile(user) {
 //   沒有人員資料或已停用 → 登出，回登入頁並顯示「帳號未啟用」
 //   要管理者但不是       → 回傳 forbidden: true，由頁面顯示「沒有權限」
 //   讀取失敗（多半是網路）→ 回傳 error，由頁面顯示錯誤
-export function requireUser({ adminOnly = false } = {}) {
+//   loginParams（功能⑥）：沒登入時帶到登入頁的網址參數，登入後才能回到原本那頁
+//     例：機台頁傳 { next: 'machine', machineId: 'T01' } → index.html?next=machine&machineId=T01
+export function requireUser({ adminOnly = false, loginParams = null } = {}) {
   return new Promise((resolve) => {
     const stop = onAuthStateChanged(auth, async (user) => {
       stop();
       if (!user) {
-        location.replace('index.html');
+        const query = loginParams ? `?${new URLSearchParams(loginParams)}` : '';
+        location.replace(`index.html${query}`);
         return;
       }
       try {
@@ -230,6 +235,31 @@ export function prodDateAndShift(date, shiftSetting) {
   };
   const shift = (shiftSetting?.shifts || []).find(inShift);
   return { prodDate, shiftId: shift ? shift.id : '' };
+}
+
+// ---------- 狀態顏色（功能③寫在看板裡，功能⑥搬到這裡給機台頁共用） ----------
+
+// 顏色一定要是 #RRGGBB，避免設定打錯把畫面弄壞
+export function safeColor(hex) {
+  return /^#[0-9a-f]{6}$/i.test(hex || '') ? hex : '#9AA0A6';
+}
+
+// 狀態底色上的字色：白字、深色字選對比比較高的那個（黃、橘、淺灰底會用深色字）
+export function textColorOn(hex) {
+  const n = parseInt(safeColor(hex).slice(1), 16);
+  const channel = (v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  const lum = 0.2126 * channel((n >> 16) & 255) + 0.7152 * channel((n >> 8) & 255) + 0.0722 * channel(n & 255);
+  const inkLum = 0.0175;   // 深色字 #1D262D 的亮度
+  return (1.05 / (lum + 0.05)) >= ((lum + 0.05) / (inkLum + 0.05)) ? '#FFFFFF' : '#1D262D';
+}
+
+// 卡片、按鈕用的 style：--c 底色、--fg 字色
+export function colorStyle(hex) {
+  const color = safeColor(hex);
+  return `--c:${color};--fg:${textColorOn(color)}`;
 }
 
 // 毫秒 → 「3分」「2小時15分」「1天4小時」
