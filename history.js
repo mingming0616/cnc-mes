@@ -14,6 +14,8 @@
 //     ‧修正範圍包含目前狀態時，同一次寫入也更新 machineStatus（看板跟著變）
 //     ‧誰能改：管理者全部單位、不限時間；維護員負責單位、當班內；檢視只能看
 //     ‧存檔前一定跟資料庫確認最新內容，所以修正要有網路
+//   功能⑪：v3.3 匯入的那筆（eventType: 'import'）標「v3.3 匯入」，顯示 v3.3 的開始時間；
+//     這筆不能修正（安全規則也擋），往後連帶修正時遇到它就停
 //   需要的索引（在 Firebase 主控台建立）：
 //     ‧machineEvents ＝ machineId 升序 ＋ createdAt 降序（異動履歷，功能④）
 //     ‧machineEvents ＝ machineId 升序 ＋ createdAt 升序（修正時往後找連帶的紀錄，功能⑤）
@@ -142,6 +144,7 @@ const ms = (ts) => (ts && typeof ts.toMillis === 'function' ? ts.toMillis() : 0)
 const esc = (value) => deps.escapeHtml(value);
 const isOpen = () => Boolean(deps) && $('dlg-history').open;
 const isFix = (data) => data?.eventType === 'correction';   // 修正紀錄；其他都是狀態變更
+const isImport = (data) => data?.eventType === 'import';     // 功能⑪：v3.3 匯入的那筆（也算狀態變更）
 const pick4 = (data) => ({
   reasonCode: data?.reasonCode || '', partNo: data?.partNo || '', opNo: data?.opNo || '', note: data?.note || ''
 });
@@ -546,6 +549,7 @@ function baseIdOf(status) {
 // 這筆能不能修正：管理者全部；維護員負責單位、當班內；檢視不行；還在同步的不行
 function canFix(row) {
   if (row.item.pending) return false;
+  if (isImport(row.item.data)) return false;   // 功能⑪：v3.3 匯入的那筆不能修正
   const me = deps.getMe();
   const machine = deps.machineOf(state.machineId);
   if (!me || !machine || !deps.canEdit(machine)) return false;
@@ -629,7 +633,13 @@ function rowHtml(row, i, rows, status) {
   let change = '';
   let dur = '';
   let lines = valueLines(e);
-  if (kind === 'first') {
+  if (isImport(e)) {
+    // 功能⑪：v3.3 匯入。開始時間沿用 v3.3；列出 v3.3 原本的狀態寫法、匯入前 MES 是什麼
+    change = `<span class="tag">v3.3 匯入</span>${chip(deptId, e.toStatus)}${reasonSpan(toReason)}`;
+    dur = `v3.3 從 ${timeText(ms(e.importedSince))} 開始`;
+    const before = e.fromStatus == null ? '未設定' : statusName(deptId, e.fromStatus);
+    lines = [`v3.3 狀態：${e.sourceStatus || '—'}（匯入前 MES 是：${before}）`, ...valueLines(e)];
+  } else if (kind === 'first') {
     change = `<span class="tag">第一次設定</span>${chip(deptId, e.toStatus)}${reasonSpan(toReason)}`;
   } else if (kind === 'status') {
     change = `${chip(deptId, e.fromStatus)}<span class="hist-arrow" aria-label="改成">→</span>`
@@ -1027,6 +1037,7 @@ async function planFix(item, values) {
     let i = 1;
     for (; i < seq.length; i += 1) {
       const e = seq[i].data;
+      if (isImport(e)) break;   // 功能⑪：遇到 v3.3 匯入就停（匯入的內容蓋掉前面的，不連帶改）
       if (key === 'reasonCode' && (e.fromStatus !== e.toStatus || e.toStatus !== item.data.toStatus)) break;
       if ((effective(seq[i])[key] || '') !== before[key]) break;
       ids.push(seq[i].id);

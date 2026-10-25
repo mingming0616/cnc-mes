@@ -33,6 +33,9 @@
 .imp-box.is-error > summary { color: var(--error); }
 .imp-done { padding: 10px 14px; margin: 0 0 12px; border: 2px solid var(--ink); border-radius: var(--radius); background: var(--sunk); font-weight: 600; }
 .imp-hint { font-weight: 600; }
+/* 功能⑪「匯入 v3.3 狀態」的樣式：只有這頁用（其他沿用匯入設備的 imp-*） */
+.sti-time { max-width: 320px; margin: 0 0 14px; }
+.sti-map { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 0; padding: 0 14px 12px 34px; font-size: 15px; }
 /* 功能⑧「平面圖」的樣式：只有這頁用 */
 .pl-floor { max-width: 360px; }
 .pl-current {
@@ -78,6 +81,8 @@
           <button id="btn-add-machine" class="btn primary" type="button">新增設備</button>
           <!-- 功能⑦：一次匯入很多台（CSV 檔） -->
           <button id="btn-import" class="btn" type="button">匯入設備</button>
+          <!-- 功能⑪：一次性把 v3.3 看板的目前狀態搬進來（CSV 檔） -->
+          <button id="btn-sti" class="btn" type="button">匯入 v3.3 狀態</button>
           <!-- 功能⑥：印機台的 QR 標籤（帶入下面選的單位、樓層） -->
           <a id="btn-labels" class="btn" href="labels.html">列印 QR 標籤</a>
         </div>
@@ -144,6 +149,36 @@
         <div class="row-actions">
           <button id="imp-close" class="btn" type="button">關閉</button>
           <button id="imp-run" class="btn primary" type="button" hidden>確定匯入</button>
+        </div>
+      </section>
+
+      <!-- ========== 功能⑪：匯入 v3.3 狀態（一次性搬移） ========== -->
+      <section id="sti-card" class="sheet" hidden>
+        <h2>匯入 v3.3 狀態</h2>
+        <p class="muted notes">把 v3.3 看板的目前狀態一次搬進 MES，會蓋掉 MES 現在的狀態（原本的異動紀錄留著）。
+選 v3.3 匯出的「設備狀態」CSV → 確認匯出時間 → 看預覽 → 按「確定匯入」才寫入。
+持續時間沿用 v3.3：開始時間＝匯出時間減「狀態持續(分鐘)」；沒有持續時間的，從匯入那一刻開始算。</p>
+        <details class="imp-help">
+          <summary>狀態怎麼對照</summary>
+          <ul>
+            <li>生產中 → 生產中；架機中 → 架機中；無排產 → 無排產</li>
+            <li>待料 → 待機／待料；借出(生技) → 借出／生技課</li>
+            <li>設備故障：備註有「報廢」→ 停用／待報廢；其他 → 故障，原因依序看：故障分類「電控」→ 電控、故障分類「其他」→ 其他、備註有「主軸」→ 主軸、「刀庫」或「換刀」→ 刀庫／換刀、「馬達」或「伺服」→ 電控，都沒有 → 其他</li>
+            <li>料號、製程、備註照搬；「更新人員」不搬，履歷記成匯入的管理者，並標「v3.3 匯入」</li>
+            <li>MES 沒有、或「不使用」的設備會略過；狀態寫法看不懂，整批不寫</li>
+          </ul>
+        </details>
+        <div class="imp-pick">
+          <label class="btn" for="sti-file">選擇檔案</label>
+          <input id="sti-file" class="imp-file" type="file" accept=".csv,text/csv,text/comma-separated-values,text/plain">
+          <span id="sti-filename" class="muted"></span>
+        </div>
+        <label class="field sti-time"><span>v3.3 匯出時間（台灣時間，從檔名自動帶入）</span><input id="sti-time" type="datetime-local"></label>
+        <div id="sti-preview"></div>
+        <p id="sti-error" class="form-error" role="alert"></p>
+        <div class="row-actions">
+          <button id="sti-close" class="btn" type="button">關閉</button>
+          <button id="sti-run" class="btn primary" type="button" hidden>確定匯入</button>
         </div>
       </section>
 
@@ -225,10 +260,12 @@
 //        （跟機台狀態的「停用」不同，狀態的停用是借出、安裝驗收等暫時不能生產）
 //   功能⑦：設備分頁加「匯入設備」，用 CSV 檔一次新增或修改很多台
 //   功能⑧：樓層分頁加「平面圖」，匯入看板用的平面圖 floorPlans/{樓層代號}（程式在檔案最下面）
+//   功能⑪：設備分頁加「匯入 v3.3 狀態」，一次性把 v3.3 的目前狀態搬進 machineStatus（程式在匯入設備後面）
 // ============================================================
 import {
   db, collection, getDocs, getDocsFromServer, doc, getDoc, setDoc, serverTimestamp,
-  requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime
+  requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime,
+  writeBatch, Timestamp, prodDateAndShift, formatDuration   // 功能⑪匯入 v3.3 狀態用（common.js 本來就有，不用改）
 } from './common.js';
 // floorplan.js 改版時，把下面網址的 v 數字加 1（跟 board.html 一樣）
 import { parsePlanFile, planToText, byteLength, createPlanView, PLAN_TEXT_MAX, PLAN_BYTES_MAX } from './floorplan.js?v=2';
@@ -948,7 +985,7 @@ function lockImport(lock) {
 
 // 匯入中離開頁面要先問一下（還沒寫完的會中斷）
 window.addEventListener('beforeunload', (event) => {
-  if (!importing) return;
+  if (!importing && !stiBusy) return;   // 功能⑪匯入 v3.3 狀態寫入中也要問
   event.preventDefault();
   event.returnValue = '';
 });
@@ -987,7 +1024,9 @@ function resetImport() {
 }
 
 $('btn-import').addEventListener('click', () => {
+  if (stiBusy) return;
   closeMachineForm();
+  closeSti();   // 功能⑪：兩個匯入畫面一次只開一個
   resetImport();
   $('import-card').hidden = false;
   $('import-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
@@ -1075,6 +1114,387 @@ $('imp-run').addEventListener('click', async () => {
       renderImportPreview(importPlan, doneText);
     } catch (err) {
       $('imp-error').textContent = `${$('imp-error').textContent} 重新讀取失敗：${errorMessage(err)}`.trim();
+    }
+  }
+});
+
+// ==================== 功能⑪：匯入 v3.3 狀態（一次性搬移） ====================
+// 流程：選 v3.3 匯出的「設備狀態」CSV → 確認匯出時間 → 檢查並預覽（這時還沒寫入）→ 按「確定匯入」
+// 規則：
+//   ‧每台寫「目前狀態 machineStatus ＋ 一筆事件紀錄 machineEvents（eventType: 'import'）」，兩筆一起寫
+//   ‧開始時間＝匯出時間 − 狀態持續(分鐘)；沒有持續時間的，用匯入當下（伺服器時間）
+//   ‧料號、製程、備註照搬；「更新人員」不搬（事件記成匯入的管理者）
+//   ‧MES 沒有、或「不使用」的設備略過；看不懂的狀態、太長的欄位 → 整批不寫
+//   ‧跟 MES 現在一模一樣的（含開始時間）算「不變」，不重寫；中途失敗再按一次會從還沒寫的接著做
+//   ‧只有管理者能寫（安全規則 validImport 也會擋）
+
+// CSV 欄位名稱（v3.3 匯出的檔）
+const STI_HEADERS = {
+  machineId: '資產編號', status: '狀態', minutes: '狀態持續(分鐘)', partNo: '生產料號',
+  opNo: '製程', faultType: '故障分類', note: '備註/原因'
+};
+// v3.3 狀態 → MES 狀態代碼、原因代碼（「設備故障」另外看 stiFaultMap）
+const STI_STATUS = {
+  '生產中': { status: 'running', reason: '' },
+  '架機中': { status: 'setup', reason: '' },
+  '無排產': { status: 'idle', reason: '' },
+  '待料': { status: 'waiting', reason: 'material' },
+  '借出(生技)': { status: 'lent', reason: 'prodTech' },
+  '設備故障': null
+};
+const STI_MAX_BYTES = 2 * 1024 * 1024;
+const STI_TIMEOUT_MS = 20000;   // 一台 20 秒沒回應就當作網路斷了
+
+let stiTable = null;      // 選好的檔案內容（已切成表格）
+let stiPlan = null;       // 最近一次的檢查結果
+let stiBusy = false;      // 正在寫入：不能關閉、不能換檔
+let stiStatuses = new Map();   // MES 目前狀態：設備編號 → machineStatus 資料
+let stiShifts = null;     // 班別設定（算生產日、班別）
+
+// 狀態寫法統一：去空白、全形括號改半形（「借出（生技）」也認得）
+const stiLabel = (text) => String(text ?? '').replace(/\s+/g, '').replace(/（/g, '(').replace(/）/g, ')');
+
+// 「設備故障」怎麼對：報廢 → 停用／待報廢；其他 → 故障＋原因（依序看故障分類、備註關鍵字）
+function stiFaultMap(faultType, note) {
+  const type = String(faultType ?? '');
+  const text = String(note ?? '');
+  if (/報廢/.test(text)) return { status: 'offline', reason: 'scrap' };
+  if (/電控/.test(type)) return { status: 'fault', reason: 'electrical' };
+  if (type.trim() === '其他') return { status: 'fault', reason: 'other' };
+  if (/主軸/.test(text)) return { status: 'fault', reason: 'spindle' };
+  if (/刀庫|換刀/.test(text)) return { status: 'fault', reason: 'atc' };
+  if (/馬達|伺服/.test(text)) return { status: 'fault', reason: 'electrical' };
+  return { status: 'fault', reason: 'other' };
+}
+
+// 檔名裡的匯出時間：旭申設備狀態_20261025_2147.csv → 2026-10-25T21:47（台灣時間）
+function stiTimeFromName(name) {
+  const m = String(name ?? '').match(/(20\d{2})(\d{2})(\d{2})[_-](\d{2})(\d{2})/);
+  return m ? `${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}` : '';
+}
+
+// 畫面上的匯出時間（台灣時間）→ 毫秒；沒填或格式不對回傳 null
+function stiExportMs(value) {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$/.test(value || '')) return null;
+  const ms = Date.parse(`${value}:00+08:00`);
+  return Number.isNaN(ms) ? null : ms;
+}
+
+const stiMs = (ts) => (ts && typeof ts.toMillis === 'function' ? ts.toMillis() : null);
+
+// 檢查檔案內容，算出要寫入什麼（不寫資料庫）
+//   cur：{ machines, depts, statuses: Map(設備編號 → 目前狀態) }；exportMs：匯出時間；nowMs：現在
+function buildStiPlan(table, cur, exportMs, nowMs) {
+  const plan = { rowCount: 0, writes: [], unchanged: 0, skipped: [], errors: [], warnings: [], mapCount: new Map() };
+  const header = (table[0] || []).map((h) => String(h ?? '').replace(/^\uFEFF/, '').trim());
+  const col = {};
+  for (const [key, label] of Object.entries(STI_HEADERS)) {
+    const index = header.indexOf(label);
+    if (index >= 0) col[key] = index;
+  }
+  if (col.machineId === undefined || col.status === undefined) {
+    plan.errors.push('第 1 行要是欄位名稱，而且要有「資產編號」和「狀態」。請確認選的是 v3.3 匯出的設備狀態檔。');
+    return plan;
+  }
+  if (col.minutes === undefined) plan.warnings.push('檔案沒有「狀態持續(分鐘)」欄位：全部從匯入那一刻開始計時。');
+
+  if (exportMs === null) plan.errors.push('請填「v3.3 匯出時間」（檔名沒有時間的話要自己填）。');
+  else if (exportMs > nowMs + 10 * 60 * 1000) plan.errors.push('「v3.3 匯出時間」比現在還晚，請檢查。');
+  else if (nowMs - exportMs > 24 * 60 * 60 * 1000) {
+    plan.warnings.push(`這個檔案是 ${formatDuration(nowMs - exportMs)}前匯出的，現場狀態可能已經變了；建議從 v3.3 重新匯出再匯入。`);
+  }
+
+  const machineMap = new Map(cur.machines.map((m) => [m.machineId, m]));
+  const deptMap = new Map(cur.depts.map((d) => [d.id, d]));
+  const seen = new Map();
+  table.slice(1).forEach((cells, index) => {
+    if (cells.every((c) => String(c ?? '').trim() === '')) return;
+    const line = index + 2;
+    const get = (key) => (col[key] === undefined ? '' : String(cells[col[key]] ?? '').trim());
+    plan.rowCount += 1;
+
+    const id = normalizeCode(get('machineId'));
+    if (!id) { plan.errors.push(`第 ${line} 行：資產編號空白`); return; }
+    if (seen.has(id)) { plan.errors.push(`第 ${line} 行：${id} 重複（第 ${seen.get(id)} 行也有）`); return; }
+    seen.set(id, line);
+
+    const errs = [];
+    // 狀態對照
+    const label = stiLabel(get('status'));
+    let map = null;
+    if (!label) errs.push('狀態空白');
+    else if (!(label in STI_STATUS)) errs.push(`看不懂的狀態「${get('status')}」`);
+    else map = STI_STATUS[label] || stiFaultMap(get('faultType'), get('note'));
+
+    // 開始時間：匯出時間 − 持續分鐘；空白＝匯入當下（null）
+    const minutesText = get('minutes');
+    let since = null;
+    if (minutesText) {
+      if (!/^\d{1,7}$/.test(minutesText)) errs.push(`狀態持續(分鐘)「${minutesText}」不是整數`);
+      else if (exportMs !== null) since = exportMs - Number(minutesText) * 60000;
+    }
+
+    // 料號、製程、備註（長度跟看板的輸入框一樣）
+    const partNo = get('partNo');
+    const opNo = get('opNo');
+    const note = get('note');
+    if (partNo.length > 40) errs.push('生產料號超過 40 個字');
+    if (opNo.length > 20) errs.push('製程超過 20 個字');
+    if (note.length > 100) errs.push('備註/原因超過 100 個字');
+
+    // MES 的設備：沒有或不使用 → 略過（不擋整批）
+    const machine = machineMap.get(id);
+    if (!machine) { plan.skipped.push(`${id}：MES 沒有這台設備`); return; }
+    if (machine.active !== true) { plan.skipped.push(`${id}：MES 設成「不使用」`); return; }
+
+    // 這個單位有沒有這個狀態、原因（例：「借出」要先在首頁按過「設定更新」）
+    const dept = deptMap.get(machine.deptId);
+    let def = null;
+    if (map) {
+      def = (dept?.statuses || []).find((s) => s.code === map.status) || null;
+      if (!def) errs.push(`單位「${dept?.name || machine.deptId}」沒有狀態代碼 ${map.status}（「借出」請先回首頁按「設定更新」）`);
+      else if (map.reason && !(dept.reasons?.[map.status] || []).some((r) => r.code === map.reason && r.active !== false)) {
+        errs.push(`「${def.label}」沒有可用的原因代碼 ${map.reason}`);
+      } else if (!map.reason && def.needsReason === 'required') {
+        errs.push(`「${def.label}」一定要有原因`);
+      }
+    }
+    if (errs.length) { plan.errors.push(`第 ${line} 行（${id}）：${errs.join('；')}`); return; }
+
+    const reasonLabel = map.reason
+      ? ((dept.reasons?.[map.status] || []).find((r) => r.code === map.reason)?.label || map.reason) : '';
+    const key = `${label} → ${def.label}${reasonLabel ? `／${reasonLabel}` : ''}`;
+    plan.mapCount.set(key, (plan.mapCount.get(key) || 0) + 1);
+
+    // 跟 MES 現在一樣（狀態、原因、料號、製程、備註，有開始時間的話也一樣）→ 不用寫
+    const prev = cur.statuses.get(id) || null;
+    const same = prev && prev.status === map.status && (prev.reasonCode || '') === map.reason
+      && (prev.partNo || '') === partNo && (prev.opNo || '') === opNo && (prev.note || '') === note
+      && (since === null || stiMs(prev.statusSince) === since);
+    if (same) { plan.unchanged += 1; return; }
+
+    // MES 在 v3.3 匯出之後有人改過 → 提醒會被蓋掉
+    const prevAt = stiMs(prev?.updatedAt);
+    if (exportMs !== null && prevAt !== null && prevAt > exportMs) {
+      plan.warnings.push(`${id}：MES 在 v3.3 匯出之後（${formatTime(prev.updatedAt)}）有人改過，匯入會蓋掉`);
+    }
+    plan.writes.push({
+      line, id, deptId: machine.deptId, sourceStatus: label, status: map.status, reasonCode: map.reason,
+      statusLabel: def.label, reasonLabel, since, partNo, opNo, note, prev
+    });
+  });
+
+  if (!plan.rowCount && !plan.errors.length) plan.errors.push('檔案裡沒有資料（第 2 行以後是空的）。');
+  return plan;
+}
+
+// 用來比對「預覽時」和「按確定時」要寫的內容是不是一樣
+function stiSignature(plan) {
+  return JSON.stringify([
+    plan.errors.length,
+    plan.writes.map((w) => [w.id, w.status, w.reasonCode, w.partNo, w.opNo, w.note, w.since])
+  ]);
+}
+
+// ---------- 預覽畫面 ----------
+function renderStiPreview(plan, doneText = '') {
+  const hasError = plan.errors.length > 0;
+  const chips = [
+    ['資料', plan.rowCount], ['要寫入', plan.writes.length], ['跟 MES 一樣、不變', plan.unchanged], ['略過', plan.skipped.length]
+  ].map(([label, n]) => `<span>${label}<b>${n}</b></span>`).join('')
+    + (hasError ? `<span class="is-error">錯誤<b>${plan.errors.length}</b></span>` : '');
+
+  const mapRows = [...plan.mapCount.entries()]
+    .map(([key, n]) => `<span>${escapeHtml(key)}</span><span>${n} 台</span>`).join('');
+  const mapBox = mapRows
+    ? `<details class="imp-box" open><summary>對照結果</summary><div class="sti-map">${mapRows}</div></details>` : '';
+
+  const nowMs = Date.now();
+  const writeLines = plan.writes.map((w) => {
+    const sinceText = w.since === null ? '從匯入時開始'
+      : `已經 ${formatDuration(nowMs - w.since)}（從 ${formatTime(Timestamp.fromMillis(w.since))}）`;
+    const parts = [w.partNo && `料號 ${w.partNo}`, w.opNo && `製程 ${w.opNo}`, w.note && `備註 ${w.note}`].filter(Boolean).join('，');
+    return `${w.id}　${w.sourceStatus} → ${w.statusLabel}${w.reasonLabel ? `／${w.reasonLabel}` : ''}・${sinceText}${parts ? `・${parts}` : ''}`;
+  });
+
+  let hint;
+  if (hasError) hint = '有錯誤，整批都不會寫入。請修正檔案或匯出時間後再試。';
+  else if (!plan.writes.length) hint = '跟 MES 現在的狀態一樣，沒有要寫入的。';
+  else hint = `確認沒問題，按「確定匯入」才會寫入，共 ${plan.writes.length} 台（每台寫目前狀態＋一筆事件紀錄）。匯入時請不要關掉這一頁或鎖住螢幕。`;
+
+  $('sti-preview').innerHTML = `
+    ${doneText ? `<p class="imp-done">${escapeHtml(doneText)}</p>` : ''}
+    <div class="imp-sum">${chips}</div>
+    ${importListBox(`錯誤（${plan.errors.length}）`, plan.errors, { open: true, error: true })}
+    ${importListBox(`注意（${plan.warnings.length}）`, plan.warnings, { open: true })}
+    ${mapBox}
+    ${importListBox(`要寫入（${plan.writes.length}）`, writeLines, { open: plan.writes.length <= 20 })}
+    ${importListBox(`略過（${plan.skipped.length}）`, plan.skipped, { open: true })}
+    <p class="imp-hint">${escapeHtml(hint)}</p>`;
+  $('sti-run').textContent = `確定匯入（${plan.writes.length} 台）`;
+  $('sti-run').hidden = hasError || !plan.writes.length;
+}
+
+// 讀 MES 目前狀態（fresh＝一定跟資料庫要最新的）和班別設定
+async function loadStiStatuses(fresh = false) {
+  const read = fresh ? getDocsFromServer : getDocs;
+  const [statusSnap, shiftSnap] = await Promise.all([
+    read(collection(db, 'machineStatus')),
+    stiShifts ? Promise.resolve(null) : getDoc(doc(db, 'settings', 'shifts'))
+  ]);
+  stiStatuses = new Map(statusSnap.docs.map((d) => [d.id, d.data()]));
+  if (shiftSnap) stiShifts = shiftSnap.exists() ? shiftSnap.data() : null;
+}
+
+// 重新檢查並預覽
+function refreshStiPlan(doneText = '') {
+  if (!stiTable) return;
+  stiPlan = buildStiPlan(stiTable, { machines, depts, statuses: stiStatuses }, stiExportMs($('sti-time').value), Date.now());
+  if (!stiShifts) stiPlan.errors.push('找不到班別設定（算生產日、班別要用），請回首頁按「建立預設資料」。');
+  renderStiPreview(stiPlan, doneText);
+}
+
+function resetSti() {
+  stiTable = null;
+  stiPlan = null;
+  $('sti-filename').textContent = '';
+  $('sti-time').value = '';
+  $('sti-preview').innerHTML = '';
+  $('sti-error').textContent = '';
+  $('sti-run').hidden = true;
+}
+
+function closeSti() {
+  if (stiBusy) return;
+  $('sti-card').hidden = true;
+  resetSti();
+}
+
+function lockSti(lock) {
+  stiBusy = lock;
+  for (const id of ['sti-file', 'sti-time', 'sti-close', 'btn-sti', 'btn-import']) $(id).disabled = lock;
+}
+
+$('btn-sti').addEventListener('click', () => {
+  if (importing || stiBusy) return;
+  closeMachineForm();
+  $('import-card').hidden = true;   // 兩個匯入畫面一次只開一個
+  resetImport();
+  resetSti();
+  $('sti-card').hidden = false;
+  $('sti-card').scrollIntoView({ behavior: 'smooth', block: 'start' });
+});
+
+$('sti-close').addEventListener('click', closeSti);
+
+$('sti-file').addEventListener('change', async () => {
+  const file = $('sti-file').files?.[0];
+  if (!file) return;
+  resetSti();
+  try {
+    if (file.size > STI_MAX_BYTES) throw new Error('檔案超過 2 MB，請確認選的是 v3.3 的設備狀態檔');
+    const text = decodeCsv(await file.arrayBuffer());   // 跟匯入設備一樣：先當 UTF-8，不是再試 Big5
+    if (text === null) throw new Error('看不懂這個檔案的文字編碼，請另存成「CSV UTF-8」再試');
+    $('sti-filename').textContent = file.name;
+    $('sti-time').value = stiTimeFromName(file.name);
+    $('sti-preview').innerHTML = '<p class="muted">讀取 MES 目前狀態…</p>';
+    await loadStiStatuses();
+    stiTable = parseCsv(text);
+    refreshStiPlan();
+  } catch (err) {
+    $('sti-preview').innerHTML = '';
+    $('sti-error').textContent = err.code ? errorMessage(err) : err.message;
+  } finally {
+    $('sti-file').value = '';   // 清掉，同一個檔才能再選一次
+  }
+});
+
+// 改匯出時間 → 重新預覽
+$('sti-time').addEventListener('change', () => refreshStiPlan());
+
+$('sti-run').addEventListener('click', async () => {
+  if (!stiTable || stiBusy) return;
+  lockSti(true);
+  setBusy($('sti-run'), true, '確認最新資料…');
+  $('sti-error').textContent = '';
+  let wakeLock = null;
+  try { wakeLock = await navigator.wakeLock?.request('screen'); } catch { /* 不支援就算了 */ }
+  let done = 0;
+  let doneText = '';
+  let current = '';
+  const exportMs = stiExportMs($('sti-time').value);
+  try {
+    if (!stiShifts) throw new Error('找不到班別設定，請回首頁按「建立預設資料」');
+    // 1. 再跟資料庫要一次最新的設備、單位、目前狀態：預覽之後有人改過，就重新預覽、請使用者再確認
+    const fresh = await withTimeout(fetchFresh(), 30000);
+    await withTimeout(loadStiStatuses(true), 30000);
+    const plan = buildStiPlan(stiTable, { machines: fresh.machines, depts: fresh.depts, statuses: stiStatuses }, exportMs, Date.now());
+    if (stiSignature(plan) !== stiSignature(stiPlan)) {
+      stiPlan = plan;
+      renderStiPreview(plan);
+      $('sti-error').textContent = '資料剛被改過，已經重新整理預覽，請再確認一次。';
+      return;
+    }
+    // 2. 一台一台寫：目前狀態＋事件紀錄一起寫（安全規則會檢查兩筆對得上）
+    const empNo = myEmpNo();
+    const myName = ctx.profile.name;
+    for (const w of plan.writes) {
+      current = w.id;
+      $('sti-run').textContent = `匯入中… ${done} / ${plan.writes.length}`;
+      const { prodDate, shiftId } = prodDateAndShift(new Date(), stiShifts);
+      if (!shiftId) throw new Error('現在的時間不在任何班別裡，請檢查班別設定');
+      const since = w.since === null ? serverTimestamp() : Timestamp.fromMillis(w.since);
+      const batch = writeBatch(db);
+      const eventRef = doc(collection(db, 'machineEvents'));
+      batch.set(eventRef, {
+        eventType: 'import',
+        source: 'v3.3',
+        sourceStatus: w.sourceStatus,                 // v3.3 原本的狀態寫法，例：設備故障
+        machineId: w.id,
+        deptId: w.deptId,
+        fromStatus: w.prev ? w.prev.status : null,     // 匯入前 MES 的狀態（沒有＝null）
+        fromStatusSince: w.prev ? w.prev.statusSince : null,
+        toStatus: w.status,
+        reasonCode: w.reasonCode, note: w.note, partNo: w.partNo, opNo: w.opNo,
+        importedSince: since,                          // v3.3 的開始時間
+        prodDate, shiftId,
+        createdAt: serverTimestamp(),
+        createdByEmpNo: empNo,
+        createdByName: myName
+      });
+      batch.set(doc(db, 'machineStatus', w.id), {
+        machineId: w.id,
+        deptId: w.deptId,
+        status: w.status,
+        reasonCode: w.reasonCode, note: w.note, partNo: w.partNo, opNo: w.opNo,
+        statusSince: since,
+        lastEventId: eventRef.id,
+        updatedAt: serverTimestamp(),
+        updatedByEmpNo: empNo,
+        updatedByName: myName
+      });
+      await withTimeout(batch.commit(), STI_TIMEOUT_MS);
+      done += 1;
+    }
+    doneText = `匯入完成：${done} 台。到設備看板看看，持續時間應該跟 v3.3 一樣。`;
+    toast('v3.3 狀態匯入完成');
+  } catch (err) {
+    const reason = err.code === 'timeout' ? `網路太慢，${STI_TIMEOUT_MS / 1000} 秒沒有回應`
+      : err.code === 'permission-denied' ? '存不進去（可能剛好有人改了這台的狀態，或安全規則還沒發布新版）'
+        : (err.code ? errorMessage(err) : err.message);
+    $('sti-error').textContent = done
+      ? `寫到 ${current} 時失敗：${reason}。前面 ${done} 台已經寫好，不用重做；問題排除後按「確定匯入」再試，會從還沒寫的接著做。`
+      : `匯入失敗${current ? `（${current}）` : ''}：${reason}`;
+  } finally {
+    try { await wakeLock?.release(); } catch { /* 已經釋放了 */ }
+    setBusy($('sti-run'), false);
+    lockSti(false);
+    // 3. 重新讀 MES 目前狀態，預覽改成現在的樣子（寫好的會變成「不變」）
+    try {
+      await loadStiStatuses(true);
+      refreshStiPlan(doneText);
+    } catch (err) {
+      $('sti-error').textContent = `${$('sti-error').textContent} 重新讀取失敗：${errorMessage(err)}`.trim();
     }
   }
 });

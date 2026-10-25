@@ -1,7 +1,8 @@
 rules_version = '2';
 
 // ============================================================
-// CNC MES 安全規則（功能①登入＋人員、②主檔維護、③設備看板、④異動履歷、⑤修正紀錄、⑧平面圖、⑩借出狀態）
+// CNC MES 安全規則（功能①登入＋人員、②主檔維護、③設備看板、④異動履歷、⑤修正紀錄、⑧平面圖、⑩借出狀態、
+//                    ⑪匯入 v3.3 狀態）
 // 發布方式：Firebase 主控台 → Firestore →「规则」→ 全部取代貼上 →「发布」
 // 重點：沒登入、沒有人員資料、或已停用 → 什麼都不能讀寫
 // 前提：Authentication 已關閉自行註冊，帳號只能在主控台建立
@@ -271,7 +272,20 @@ service cloud.firestore {
         && e.machineId == machineId
         && e.createdAt == request.time
         && ((e.eventType == 'statusChange' && statusByChange(d, e))
-            || (e.eventType == 'correction' && statusByCorrection(d, e)));
+            || (e.eventType == 'correction' && statusByCorrection(d, e))
+            || (e.eventType == 'import' && statusByImport(d, e, me)));
+    }
+
+    // 匯入 v3.3 狀態（功能⑪）：只有管理者；內容要跟匯入事件一樣，
+    //   開始時間沿用 v3.3（可以是過去的時間，記在事件的 importedSince）
+    function statusByImport(d, e, me) {
+      return me.role == 'admin'
+        && e.toStatus == d.status
+        && e.reasonCode == d.reasonCode
+        && e.partNo == d.partNo
+        && e.opNo == d.opNo
+        && e.note == d.note
+        && d.statusSince == e.importedSince;
     }
 
     // 切換狀態（功能③）
@@ -423,11 +437,56 @@ service cloud.firestore {
             && allIds.hasAll(c[key].eventIds));
     }
 
+    // 匯入 v3.3 狀態（功能⑪）的欄位檢查
+    //   一次性把 v3.3 看板的目前狀態搬進來：只有管理者能寫；
+    //   跟切換狀態一樣要同時更新目前狀態，「從什麼狀態」也要跟資料庫原本的一樣；
+    //   開始時間 importedSince 沿用 v3.3（不能晚於現在）；這筆不能用修正紀錄改
+    function validImport(eventId) {
+      let d = request.resource.data;
+      let me = get(myProfilePath()).data;
+      let m = get(machinePath(d.machineId)).data;
+      let before = statusPath(d.machineId);
+      return signedIn()
+        && d.keys().hasOnly(['eventType', 'source', 'sourceStatus', 'machineId', 'deptId',
+                             'fromStatus', 'fromStatusSince', 'toStatus', 'reasonCode', 'note', 'partNo', 'opNo',
+                             'importedSince', 'prodDate', 'shiftId', 'createdAt', 'createdByEmpNo', 'createdByName'])
+        && d.keys().hasAll(['eventType', 'source', 'sourceStatus', 'machineId', 'deptId',
+                            'fromStatus', 'fromStatusSince', 'toStatus', 'reasonCode', 'note', 'partNo', 'opNo',
+                            'importedSince', 'prodDate', 'shiftId', 'createdAt', 'createdByEmpNo', 'createdByName'])
+        && d.eventType == 'import'
+        && d.source == 'v3.3'
+        && textOk(d.sourceStatus, 1, 20)
+        && me.active == true
+        && me.role == 'admin'
+        && m.active == true
+        && d.deptId == m.deptId
+        && ((!exists(before) && d.fromStatus == null && d.fromStatusSince == null)
+            || (exists(before)
+                && d.fromStatus == get(before).data.status
+                && d.fromStatusSince == get(before).data.statusSince))
+        && statusCodeOk(d.toStatus)
+        && textOk(d.reasonCode, 0, 30)
+        && textOk(d.note, 0, 100)
+        && textOk(d.partNo, 0, 40)
+        && textOk(d.opNo, 0, 20)
+        && d.importedSince is timestamp
+        && d.importedSince <= request.time
+        && d.prodDate is string && d.prodDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && d.shiftId in ['D', 'N']
+        && d.createdAt == request.time
+        && d.createdByEmpNo == myEmpNo()
+        && d.createdByName == me.name
+        // 一定要同時更新這台機的目前狀態：指向這筆事件，開始時間跟這筆一樣
+        && getAfter(before).data.lastEventId == eventId
+        && getAfter(before).data.statusSince == d.importedSince;
+    }
+
     match /machineEvents/{eventId} {
       allow read: if isActive();
-      // 依 eventType 分開檢查：切換狀態（功能③）、修正紀錄（功能⑤）
+      // 依 eventType 分開檢查：切換狀態（功能③）、修正紀錄（功能⑤）、匯入 v3.3 狀態（功能⑪）
       allow create: if (request.resource.data.eventType == 'statusChange' && validEvent(eventId))
-                    || (request.resource.data.eventType == 'correction' && validCorrection(eventId));
+                    || (request.resource.data.eventType == 'correction' && validCorrection(eventId))
+                    || (request.resource.data.eventType == 'import' && validImport(eventId));
       // 事件紀錄只能新增，任何人都不能改、不能刪
       allow update, delete: if false;
     }
