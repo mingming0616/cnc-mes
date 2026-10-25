@@ -12,7 +12,7 @@
 <!-- board.css：機台面板、異動履歷、修正紀錄的樣式（跟機台頁共用）；改版時把 v 的數字加 1 -->
 <link rel="stylesheet" href="board.css?v=4">
 <!-- floorplan.css：功能⑧ 深色看板＋平面圖；改版時把 v 的數字加 1（master.html 也有引用） -->
-<link rel="stylesheet" href="floorplan.css?v=1">
+<link rel="stylesheet" href="floorplan.css?v=2">
 </head>
 <body class="board-page">
 
@@ -85,6 +85,8 @@
 <script type="module">
 // ============================================================
 // board.html：設備看板（所有角色都能看）
+//   功能⑨ 平面圖操作改善：電腦按住滑鼠左鍵拖動地圖、Ctrl＋滾輪以滑鼠位置縮放、
+//          立體時機台加高（這三項寫在 floorplan.js）；平面圖用滿瀏覽器寬度（floorplan.css）
 //   功能⑧ 改成深色＋平面圖（照 v3.3 的方式）：
 //     ‧狀態統計卡：8 種狀態＋未設定＋目前生產中 %；點一張＝只亮那種狀態
 //     ‧有平面圖的樓層：機台畫在實際位置，顏色＝狀態；平面／立體、圖層、縮放
@@ -107,7 +109,7 @@ import {
 } from './common.js?v=5';
 import { setupHistory, openHistory, refreshHistory } from './history.js?v=3';
 import { setupStatusPanel, openStatusPanel, refreshStatusPanel } from './status-panel.js?v=1';
-import { createPlanView, planFromText } from './floorplan.js?v=1';
+import { createPlanView, planFromText } from './floorplan.js?v=2';
 
 const $ = (id) => document.getElementById(id);
 const FILTER_KEY = 'cncmes-board-filters-v2';   // 這台裝置上次選的單位、樓層
@@ -454,7 +456,8 @@ function renderPlan(floorId, p, list) {
   if (planViewFloor !== floorId || !planView) {
     planView?.destroy();
     planView = createPlanView($('map'), p.plan, {
-      nodeInfo, onPick, view3d: ui.view3d, layers: { ...ui.layers }, zoom: ui.zoom
+      nodeInfo, onPick, view3d: ui.view3d, layers: { ...ui.layers }, zoom: ui.zoom,
+      onZoom: syncToolButtons                          // Ctrl＋滾輪縮放後，更新「適合／150%」那個字
     });
     planViewFloor = floorId;
   }

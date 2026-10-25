@@ -4,6 +4,10 @@
 //   ‧存資料庫前後的轉換：floorPlans/{樓層代號} 的 planData（整張圖存成一段文字）
 //   ‧畫平面圖：牆、通道、消防、設施細節、區域名稱＋照實際位置的機台（畫法照 v3.3）
 //     看板（board.html）畫即時狀態，主檔維護（master.html）匯入前預覽，兩頁共用這個檔
+//   功能⑨ 操作改善：
+//     ‧電腦按住滑鼠左鍵拖動地圖（移動超過 6 像素才算拖動，放開時不會誤開面板；手機、平板照舊用手指滑）
+//     ‧按住 Ctrl 滾滾輪：以滑鼠位置為中心縮放（筆電觸控板兩指縮放也是這個）
+//     ‧立體時，使用中的機台加高（高度畫在自己佔地範圍內，不蓋到旁邊；灰色虛線框維持平的）
 //   注意：這個檔案不 import common.js（跟 history.js、status-panel.js 一樣），
 //         每台機要畫什麼顏色、寫什麼字，由頁面傳進來的 nodeInfo() 決定
 // ============================================================
@@ -20,12 +24,17 @@ const PATH_OK = /^[MLHVCSQTAZmlhvcsqtaz0-9 .,eE+-]*$/;           // 線條資料
 const ID_OK = /^[A-Z0-9][A-Z0-9-]{1,11}$/;                       // 跟設備編號的規則一樣
 
 // 畫法的數字（照 v3.3 調好的值）
-const LIFT_FLAT = 5, LIFT_3D = 12;   // 機台「高度」：平面模式淡淡的立體感，立體模式明顯一點
+const LIFT_FLAT = 5;                 // 機台「高度」：平面模式淡淡的立體感
+const LIFT_3D = 34;                  // 立體模式的高度（功能⑨ 從 12 加高）……
+const LIFT_3D_RATIO = 1 / 3;         // ……但最多機台深度的三分之一，高度畫在自己的佔地範圍內，不會蓋到旁邊
 const PLAN_UNIT = 2.6;               // DXF 圖面單位（公分）的放大倍率：陰影、圓角跟著放大
 const PLAN_INSET = 6;                // 機台色塊比 DXF 外框內縮一點
 const PLAN_GAP = 16;                 // 相鄰機台之間至少留的縫（公分），才不會黏在一起
 const PLAN_TEXT = 2.9;               // 機台上文字的倍率（太窄的機台會自動縮小）
-const ZOOMS = [1, 1.5, 2, 3, 4, 6];  // 縮放：相對於「適合寬度」的倍率
+const ZOOMS = [1, 1.5, 2, 3, 4, 6];  // 縮放：相對於「適合寬度」的倍率（＋－按鈕一次跳一格）
+const ZOOM_MAX = ZOOMS[ZOOMS.length - 1];
+const WHEEL_SPEED = 0.002;           // Ctrl＋滾輪：滾一格（約 100）放大或縮小約 2 成
+const DRAG_PX = 6;                   // 滑鼠移動超過這麼多像素才算「拖動」，不到就當作點一下
 const LINE_SPEC = { 't-id': [16, 18], 't-pn': [11, 13.5], 't-sub': [10.5, 13], 't-note': [10, 13.5] };   // [字大小, 行高]
 
 let viewCount = 0;   // 同一頁有好幾張圖時，漸層的編號才不會重複
@@ -219,6 +228,7 @@ function planRects(plan) {
 //         pending: 還在同步, match: 符合目前標示的狀態, lines: { pn, sub, note }: 機台上的字,
 //         label: 給讀螢幕軟體的說明, title: 滑鼠停在上面時的說明 }
 //     onPick(設備編號, kind)：點了某台機
+//     onZoom()：用 Ctrl＋滾輪縮放後通知頁面（頁面更新縮放的字）
 //     view3d、layers { aisle 通道, detail 設施細節, fire 消防 }、zoom（'fit' 或倍率）
 //   回傳：update({ highlight })、set({ view3d, layers, zoom })、zoomStep(±1)、zoomLabel()、destroy()
 export function createPlanView(host, plan, options) {
@@ -274,16 +284,30 @@ export function createPlanView(host, plan, options) {
     return g;
   }
 
+  // 機台的「高度」（畫成本體下方的側面，在自己的佔地範圍內）
+  //   灰色虛線框（圖上有、這層主檔沒有）：平的，不加高
+  //   使用中的機台：平面模式淡淡一點；立體模式加高，但最多機台深度的三分之一；高度不跟狀態變
+  function liftOf(h, ghost) {
+    if (ghost) return 0;
+    const flat = LIFT_FLAT * PLAN_UNIT;
+    if (!opts.view3d) return flat;
+    return Math.max(flat, Math.min(LIFT_3D * PLAN_UNIT, h * LIFT_3D_RATIO));
+  }
+
+  const isGhost = (id) => (opts.nodeInfo(id)?.kind || 'ghost') === 'ghost';
+
   function drawNodes() {
     svg.querySelector('.fp-nodes')?.remove();
     nodes.clear();
-    const lift = (opts.view3d ? LIFT_3D : LIFT_FLAT) * PLAN_UNIT;
     const group = svgEl('g', { class: 'fp-nodes' });
     for (const r of planRects(plan)) {
       const w = r.x2 - r.x1;
       const h = r.y2 - r.y1;
+      const ghost = isGhost(r.id);
+      const lift = liftOf(h, ghost);
       const k = Math.max(0.6, Math.min(PLAN_TEXT, (w - 8) / 40, (h - lift - 10) / 60));
       const g = buildNode(r.id, r.x1, r.y1, w, h, lift, k);
+      g._ghost = ghost;   // 畫的時候是不是灰色虛線框（之後變了要重畫，高度才對）
       nodes.set(r.id, g);
       group.appendChild(g);
     }
@@ -291,8 +315,10 @@ export function createPlanView(host, plan, options) {
   }
 
   // 依 nodeInfo() 更新一台機的顏色、字、閃爍
+  //   回傳 false：這台「是不是灰色虛線框」跟畫的時候不一樣，要整批重畫（高度不同）
   function paint(id, g, highlight) {
     const info = opts.nodeInfo(id) || { kind: 'ghost', lines: {} };
+    if ((info.kind === 'ghost') !== g._ghost) return false;
     const live = info.kind === 'live';
     const color = live ? safeHex(info.color) : '';
     g.classList.toggle('is-ghost', info.kind === 'ghost');
@@ -305,7 +331,8 @@ export function createPlanView(host, plan, options) {
     g.classList.toggle('is-match', highlight && info.match === true);
     g.style.setProperty('--c', live ? color : 'transparent');
     g.style.setProperty('--fg', live ? (info.fg || '#FFFFFF') : '');
-    g.querySelector('.fp-side').setAttribute('fill', live ? shade(color, 0.42) : 'transparent');
+    // 側面：狀態顏色調暗；未設定的用深色（立體時也看得出是一台加高的機台）；灰色虛線框沒有側面
+    g.querySelector('.fp-side').setAttribute('fill', live ? shade(color, 0.42) : (info.kind === 'unset' ? '#141b2b' : 'transparent'));
     g.setAttribute('aria-label', info.label || id);
     g.querySelector('title').textContent = info.title || id;
 
@@ -342,12 +369,18 @@ export function createPlanView(host, plan, options) {
         y += l.lh;
       }
     }
+    return true;
   }
 
   function update({ highlight = lastHighlight } = {}) {
     lastHighlight = highlight;
     svg.classList.toggle('is-hl', !!highlight);
-    nodes.forEach((g, id) => paint(id, g, !!highlight));
+    let same = true;
+    nodes.forEach((g, id) => { if (!paint(id, g, !!highlight)) same = false; });
+    if (!same) {   // 有機台從灰色虛線框變成使用中（或反過來）：重畫，高度才對
+      drawNodes();
+      nodes.forEach((g, id) => paint(id, g, !!highlight));
+    }
   }
 
   function applyLayers() {
@@ -381,6 +414,104 @@ export function createPlanView(host, plan, options) {
 
   const zoomLabel = () => (opts.zoom === 'fit' ? '適合' : `${Math.round(opts.zoom * 100)}%`);
 
+  // ---------- 捲動：地圖框能捲就捲地圖框，捲到底（或不能捲）的部分改捲整頁 ----------
+  function scrollBoth(dx, dy) {
+    if (dx) host.scrollLeft += dx;
+    if (dy) {
+      const before = host.scrollTop;
+      host.scrollTop += dy;
+      const rest = dy - (host.scrollTop - before);
+      if (Math.abs(rest) >= 1) window.scrollBy(0, rest);
+    }
+  }
+
+  // ---------- 功能⑨：Ctrl＋滾輪，以滑鼠位置為中心縮放 ----------
+  //   做法：縮放前記下滑鼠在圖上的相對位置（左右、上下各幾成），縮放後把那一點捲回滑鼠底下
+  //   滾輪一次會連續送很多次，合併成每個畫面更新一次，才不會卡
+  let wheelFactor = 1;
+  let wheelAt = null;
+  let wheelFrame = 0;
+
+  function zoomAt(zoom, clientX, clientY) {
+    const before = svg.getBoundingClientRect();
+    const fx = before.width ? Math.min(1, Math.max(0, (clientX - before.left) / before.width)) : 0.5;
+    const fy = before.height ? Math.min(1, Math.max(0, (clientY - before.top) / before.height)) : 0.5;
+    opts.zoom = zoom;
+    applyZoom();
+    const after = svg.getBoundingClientRect();
+    scrollBoth(after.left + fx * after.width - clientX, after.top + fy * after.height - clientY);
+    opts.onZoom?.();   // 讓頁面更新「適合／150%」那個字
+  }
+
+  function applyWheel() {
+    wheelFrame = 0;
+    const cur = opts.zoom === 'fit' ? 1 : opts.zoom;
+    let next = Math.min(ZOOM_MAX, Math.max(1, cur * wheelFactor));
+    wheelFactor = 1;
+    if (next < 1.02) next = 1;                       // 縮回差不多整層：直接回到「適合寬度」
+    next = Math.round(next * 100) / 100;
+    if (Math.abs(next - cur) < 0.005) return;        // 已經到最大或最小，不用動
+    zoomAt(next === 1 ? 'fit' : next, wheelAt.x, wheelAt.y);
+  }
+
+  const onWheel = (event) => {
+    if (!event.ctrlKey) return;                      // 沒按 Ctrl：照常捲動頁面
+    event.preventDefault();                          // 擋掉瀏覽器自己的整頁放大
+    const unit = event.deltaMode === 1 ? 16 : (event.deltaMode === 2 ? 400 : 1);   // 有的瀏覽器用「行」當單位
+    wheelFactor *= Math.exp(-event.deltaY * unit * WHEEL_SPEED);
+    wheelAt = { x: event.clientX, y: event.clientY };
+    if (!wheelFrame) wheelFrame = requestAnimationFrame(applyWheel);
+  };
+
+  // ---------- 功能⑨：電腦按住滑鼠左鍵拖動地圖 ----------
+  //   只管滑鼠；手機、平板（手指、觸控筆）照舊由瀏覽器自己捲動
+  //   移動不到 DRAG_PX 像素當作點一下（照常開面板）；有拖動的話，放開時的那一下不算點
+  let drag = null;
+  let eatClick = false;
+
+  function endDrag() {
+    if (!drag) return;
+    const d = drag;
+    drag = null;
+    if (d.moving) {
+      host.classList.remove('is-dragging');
+      try { host.releasePointerCapture(d.id); } catch { /* 已經放掉了 */ }
+    }
+  }
+
+  const onPointerDown = (event) => {
+    if (event.pointerType !== 'mouse' || event.button !== 0) return;
+    drag = { id: event.pointerId, x0: event.clientX, y0: event.clientY, x: event.clientX, y: event.clientY, moving: false };
+  };
+  const onPointerMove = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    if (!(event.buttons & 1)) { endDrag(); return; }   // 在別的地方放開了左鍵
+    if (!drag.moving) {
+      if (Math.hypot(event.clientX - drag.x0, event.clientY - drag.y0) < DRAG_PX) return;
+      drag.moving = true;
+      host.classList.add('is-dragging');
+      try { host.setPointerCapture(event.pointerId); } catch { /* 抓不到也能拖，只是滑出框外會停 */ }
+    }
+    event.preventDefault();
+    scrollBoth(drag.x - event.clientX, drag.y - event.clientY);   // 地圖跟著滑鼠走
+    drag.x = event.clientX;
+    drag.y = event.clientY;
+  };
+  const onPointerUp = (event) => {
+    if (!drag || event.pointerId !== drag.id) return;
+    if (drag.moving) {
+      eatClick = true;                                  // 接下來那一下「點擊」是拖動放開，不開面板
+      setTimeout(() => { eatClick = false; }, 0);
+    }
+    endDrag();
+  };
+  const onClickCapture = (event) => {
+    if (!eatClick) return;
+    eatClick = false;
+    event.stopPropagation();
+    event.preventDefault();
+  };
+
   // 點機台、鍵盤 Enter／空白鍵
   const pick = (event) => {
     const g = event.target.closest?.('.fp-node');
@@ -394,8 +525,15 @@ export function createPlanView(host, plan, options) {
     event.preventDefault();
     pick(event);
   };
+  host.addEventListener('click', onClickCapture, true);   // 要比 pick 先收到，才擋得掉拖動放開的那一下
   host.addEventListener('click', pick);
   host.addEventListener('keydown', onKey);
+  host.addEventListener('wheel', onWheel, { passive: false });
+  host.addEventListener('pointerdown', onPointerDown);
+  host.addEventListener('pointermove', onPointerMove);
+  host.addEventListener('pointerup', onPointerUp);
+  host.addEventListener('pointercancel', endDrag);
+  host.addEventListener('lostpointercapture', endDrag);
   const onResize = () => applyZoom();
   window.addEventListener('resize', onResize);
 
@@ -412,11 +550,20 @@ export function createPlanView(host, plan, options) {
     get options() { return { view3d: opts.view3d, layers: { ...opts.layers }, zoom: opts.zoom }; },
     has: (id) => nodes.has(id),
     destroy() {
+      endDrag();
+      if (wheelFrame) cancelAnimationFrame(wheelFrame);
+      host.removeEventListener('click', onClickCapture, true);
       host.removeEventListener('click', pick);
       host.removeEventListener('keydown', onKey);
+      host.removeEventListener('wheel', onWheel);
+      host.removeEventListener('pointerdown', onPointerDown);
+      host.removeEventListener('pointermove', onPointerMove);
+      host.removeEventListener('pointerup', onPointerUp);
+      host.removeEventListener('pointercancel', endDrag);
+      host.removeEventListener('lostpointercapture', endDrag);
       window.removeEventListener('resize', onResize);
       host.innerHTML = '';
-      host.classList.remove('fp-wrap', 'is3d');
+      host.classList.remove('fp-wrap', 'is3d', 'is-dragging');
     }
   };
 }

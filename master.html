@@ -10,7 +10,7 @@
 <!-- ?v=2：style.css 有改版時把數字加 1，瀏覽器才會抓新的樣式 -->
 <link rel="stylesheet" href="style.css?v=2">
 <!-- 功能⑧：平面圖預覽的樣式（跟看板共用）；floorplan.css 改版時把 v 的數字加 1（board.html 也有引用） -->
-<link rel="stylesheet" href="floorplan.css?v=1">
+<link rel="stylesheet" href="floorplan.css?v=2">
 <style>
 /* 功能⑦「匯入設備」的樣式：只有這頁用，寫在這裡，style.css 和其他頁的版本號都不用動 */
 .imp-pick { position: relative; display: flex; align-items: center; gap: 12px; flex-wrap: wrap; margin: 4px 0 14px; }
@@ -231,7 +231,7 @@ import {
   requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime
 } from './common.js';
 // floorplan.js 改版時，把下面網址的 v 數字加 1（跟 board.html 一樣）
-import { parsePlanFile, planToText, byteLength, createPlanView, PLAN_TEXT_MAX, PLAN_BYTES_MAX } from './floorplan.js?v=1';
+import { parsePlanFile, planToText, byteLength, createPlanView, PLAN_TEXT_MAX, PLAN_BYTES_MAX } from './floorplan.js?v=2';
 
 const $ = (id) => document.getElementById(id);
 

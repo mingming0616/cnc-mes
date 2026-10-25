@@ -3,6 +3,7 @@
    ‧.fp-…：平面圖本身（看板、主檔維護的匯入預覽共用），配色照 v3.3
    ‧.board-page、.bd-…：深色看板（只有 board.html 用）
    注意：機台面板、異動履歷、修正紀錄的畫面維持淺色（跟機台頁共用 board.css），這裡不改它們
+   功能⑨：滑鼠拖動地圖的游標、地圖上的字不會被選取；看板的平面圖用滿瀏覽器寬度
    ============================================================ */
 
 /* ==================== 平面圖 ==================== */
@@ -10,7 +11,15 @@
   padding: 8px; overflow: auto; -webkit-overflow-scrolling: touch;
   background: #111724; border: 1px solid #232e44; border-radius: 12px;
 }
-.fp-svg { display: block; width: 100%; height: auto; transition: transform .45s ease; }
+.fp-svg {
+  display: block; width: 100%; height: auto; transition: transform .45s ease;
+  -webkit-user-select: none; user-select: none;   /* 拖動地圖時不會反白選到字 */
+}
+/* 功能⑨：有滑鼠的電腦，游標變成「手」，表示可以按住拖動；拖動中變成「抓住」 */
+@media (hover: hover) and (pointer: fine) {
+  .fp-wrap { cursor: grab; }
+}
+.fp-wrap.is-dragging, .fp-wrap.is-dragging * { cursor: grabbing !important; }
 .fp-svg text { font-family: "PingFang TC", "Noto Sans TC", "Microsoft JhengHei", system-ui, sans-serif; }
 .fp-bg { fill: #0d131f; }
 
@@ -87,6 +96,10 @@
 }
 
 /* ==================== 深色看板（board.html） ==================== */
+/* 功能⑨：平面圖（#plan-sec）用滿瀏覽器寬度；其他內容（篩選、統計、工具列、卡片）維持最寬 1440 像素置中 */
+.board-page .page-wide { max-width: none; }
+.board-page #panel > :not(#plan-sec) { max-width: 1408px; margin-left: auto; margin-right: auto; }
+
 .board-page {
   --bd-bg: #0a0e16;
   --bd-surface: #111724;
