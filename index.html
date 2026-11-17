@@ -11,6 +11,14 @@
 <!-- ?v=2：style.css 有改版時把數字加 1，瀏覽器才會抓新的樣式 -->
 <link rel="stylesheet" href="style.css?v=2">
 <style>
+  /* 功能⑫：首頁卡片樣式（只有首頁用，寫在這裡就不用改 style.css 的版本號） */
+  .key-wide { grid-column: 1 / -1; min-height: 110px; border-width: 3px; border-color: #2E9E4F; box-shadow: 0 5px 0 #1f7a3a; }
+  .key-wide .key-desc { color: var(--ink); font-weight: 600; }
+  .key-wide:active { box-shadow: 0 2px 0 #1f7a3a; }
+  .key-ext { font-size: 20px; }
+  .key-testing { border-style: dashed; }
+</style>
+<style>
   /* 功能⑥：從機台頁來時，登入框上方的提醒（只有這頁用，不另外改 style.css） */
   .login-next {
     margin: 0; padding: 10px 12px; font-size: 15px;
@@ -110,9 +118,20 @@ import {
 
 const $ = (id) => document.getElementById(id);
 
+// 功能⑫：現行 v3.3 看板的網址（並存期間機台狀態只在 v3.3 改）
+//   切換上線後把它改成 ''（空字串），首頁的「設備看板（現行）」卡片就會自動消失
+const LEGACY_BOARD_URL = 'https://mingming0616.github.io/Cnc-Milling-Equipment-Status/';
+
 // 首頁的模組按鍵：roles＝哪些角色看得到；href 是 null 代表還沒做（顯示「準備中」）
+//   external: true ＝另開新分頁；wide: true ＝大卡片（佔滿一整列）
+const ALL_ROLES = ['admin', 'maintainer', 'viewer'];
 const MODULES = [
-  { label: '設備看板', desc: '即時機台狀態', href: 'board.html', roles: ['admin', 'maintainer', 'viewer'] },
+  ...(LEGACY_BOARD_URL
+    ? [{ label: '設備看板（現行）', desc: '機台狀態請在這裡改（另開分頁；改狀態要用 v3.3 的工號密碼登入）', href: LEGACY_BOARD_URL, roles: ALL_ROLES, external: true, wide: true }]
+    : []),
+  { label: LEGACY_BOARD_URL ? '設備看板（新版測試中）' : '設備看板',
+    desc: LEGACY_BOARD_URL ? '資料不是即時的，不要拿來做報告' : '即時機台狀態',
+    href: 'board.html', roles: ALL_ROLES, testing: !!LEGACY_BOARD_URL },
   { label: '主檔維護', desc: '設備、樓層', href: 'master.html', roles: ['admin'] },
   { label: '人員管理', desc: '帳號、角色、負責單位', href: 'users.html', roles: ['admin'] }
 ];
@@ -285,7 +304,11 @@ function renderHome(profile) {
   $('module-keys').innerHTML = MODULES
     .filter((m) => m.roles.includes(profile.role))
     .map((m) => m.href
-      ? `<a class="key" href="${m.href}"><span class="key-label">${m.label}</span><span class="key-desc">${m.desc}</span></a>`
+      ? `<a class="key${m.wide ? ' key-wide' : ''}${m.testing ? ' key-testing' : ''}" href="${m.href}"${m.external ? ' target="_blank" rel="noopener"' : ''}>`
+        + `<span class="key-label">${m.label}${m.external ? ' <span class="key-ext" aria-label="另開分頁">↗</span>' : ''}</span>`
+        + `<span class="key-desc">${m.desc}</span>`
+        + (m.testing ? '<span class="soon">測試中</span>' : '')
+        + '</a>'
       : `<div class="key is-soon" aria-disabled="true"><span class="key-label">${m.label}</span><span class="key-desc">${m.desc}</span><span class="soon">準備中</span></div>`)
     .join('');
   if (profile.role === 'admin') {
