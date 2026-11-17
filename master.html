@@ -77,6 +77,8 @@
 <header class="topbar">
   <a class="btn ghost" href="index.html">回首頁</a>
   <span class="topbar-title">主檔維護</span>
+  <!-- 功能⑲：下載備份（全部資料存成一個檔案到這台電腦） -->
+  <span class="topbar-actions"><button id="btn-backup" class="btn ghost" type="button" hidden>下載備份</button></span>
 </header>
 
 <main class="page">
@@ -289,6 +291,23 @@
   </section>
 </main>
 
+<!-- 功能⑲：下載備份 -->
+<dialog id="dlg-backup">
+  <div class="dialog-body">
+    <h2>下載備份</h2>
+    <p>把資料庫的全部資料存成一個檔案到這台電腦。建議每週一次。</p>
+    <p id="bk-last" class="muted"></p>
+    <p id="bk-count" class="imp-hint">計算筆數中…</p>
+    <label class="check"><input id="bk-plans" type="checkbox" checked><span>包含平面圖（每層一筆，檔案會大一些）</span></label>
+    <p class="muted">備份檔是真實資料：請存在公司電腦，不要上傳 GitHub 或傳到外面。</p>
+    <p id="bk-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="bk-cancel" class="btn" type="button">取消</button>
+      <button id="bk-go" class="btn primary" type="button" disabled>開始下載</button>
+    </div>
+  </div>
+</dialog>
+
 <!-- 功能⑱：儲存原因清單前的確認視窗 -->
 <dialog id="dlg-rs">
   <div class="dialog-body">
@@ -317,8 +336,9 @@ import {
   db, collection, getDocs, getDocsFromServer, doc, getDoc, setDoc, serverTimestamp,
   requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime,
   writeBatch, Timestamp, prodDateAndShift, formatDuration,  // 功能⑪匯入 v3.3 狀態用（common.js 本來就有，不用改）
-  getDocFromServer, colorStyle                               // 功能⑱：存原因前跟資料庫確認最新內容、狀態顏色
-} from './common.js';
+  getDocFromServer, colorStyle,                              // 功能⑱：存原因前跟資料庫確認最新內容、狀態顏色
+  getCountFromServer                                         // 功能⑲：下載備份前先數筆數
+} from './common.js?v=7';   // 功能⑲ 起加版本號（common.js 改版時跟 board.html 一起加 1）
 // floorplan.js 改版時，把下面網址的 v 數字加 1（跟 board.html 一樣）
 import { parsePlanFile, planToText, byteLength, createPlanView, PLAN_TEXT_MAX, PLAN_BYTES_MAX } from './floorplan.js?v=2';
 
@@ -376,6 +396,7 @@ if (ctx.error) {
 } else {
   try {
     await loadAll();
+    $('btn-backup').hidden = false;
     $('state').hidden = true;
     $('panel').hidden = false;
   } catch (err) {
@@ -2112,6 +2133,119 @@ $('rs-dlg-ok').addEventListener('click', async () => {
 window.addEventListener('beforeunload', (event) => {
   if (rsDraft && reasonDiff().length) { event.preventDefault(); event.returnValue = ''; }
 });
+// ============================================================
+// 功能⑲：下載備份
+//   全部集合存成一個 JSON 檔：{ app, version, exportedAt, exportedBy, counts, collections: { 集合: { 編號: 資料 } } }
+//   時間欄位存成 { "__time": "2026-11-17T12:00:00.000Z" }，之後要還原時看得懂
+//   讀取量：先數筆數（每個集合約 1 次）；下載時每筆 1 次（事件紀錄會越來越多，按之前畫面會先顯示）
+//   還原：這次不做畫面，需要時再寫還原程式用這個檔寫回去
+// ============================================================
+const BACKUP_COLLECTIONS = ['users', 'departments', 'settings', 'floors', 'machines', 'floorPlans', 'machineStatus', 'machineEvents'];
+const BACKUP_NAMES = { users: '人員', departments: '單位', settings: '設定', floors: '樓層', machines: '設備',
+  floorPlans: '平面圖', machineStatus: '目前狀態', machineEvents: '事件紀錄' };
+const BACKUP_LAST_KEY = 'cncmes-last-backup';
+let backupCounts = null;
+
+$('btn-backup').addEventListener('click', openBackup);
+$('bk-cancel').addEventListener('click', () => $('dlg-backup').close());
+$('bk-plans').addEventListener('change', showBackupCount);
+$('bk-go').addEventListener('click', runBackup);
+
+async function openBackup() {
+  backupCounts = null;
+  $('bk-error').textContent = '';
+  $('bk-go').disabled = true;
+  $('bk-count').textContent = '計算筆數中…';
+  let last = null;
+  try { last = localStorage.getItem(BACKUP_LAST_KEY); } catch { /* 沒關係 */ }
+  $('bk-last').textContent = last
+    ? `這台電腦上次備份：${formatTime({ toDate: () => new Date(Number(last)) })}（${Math.floor((Date.now() - Number(last)) / 86400000)} 天前）`
+    : '這台電腦還沒有下載過備份';
+  $('dlg-backup').showModal();
+  try {
+    const counts = {};
+    for (const name of BACKUP_COLLECTIONS) {
+      counts[name] = (await getCountFromServer(collection(db, name))).data().count;
+    }
+    backupCounts = counts;
+    showBackupCount();
+    $('bk-go').disabled = false;
+  } catch (err) {
+    $('bk-count').textContent = '';
+    $('bk-error').textContent = errorMessage(err);
+  }
+}
+
+function backupList() {
+  return BACKUP_COLLECTIONS.filter((name) => name !== 'floorPlans' || $('bk-plans').checked);
+}
+
+function showBackupCount() {
+  if (!backupCounts) return;
+  const names = backupList();
+  const total = names.reduce((sum, name) => sum + backupCounts[name], 0);
+  const reads = total + BACKUP_COLLECTIONS.length;
+  const pct = Math.round((reads / 50000) * 1000) / 10;
+  $('bk-count').textContent = `共 ${total.toLocaleString()} 筆（`
+    + names.map((name) => `${BACKUP_NAMES[name]} ${backupCounts[name].toLocaleString()}`).join('、')
+    + `），約 ${reads.toLocaleString()} 次讀取，佔每天免費額度 ${pct}%`;
+}
+
+// Firestore 的資料 → 純文字（時間改成 { "__time": ISO }）
+function toPlain(value) {
+  if (value === null || value === undefined) return value ?? null;
+  if (typeof value.toDate === 'function' && typeof value.toMillis === 'function') return { __time: value.toDate().toISOString() };
+  if (Array.isArray(value)) return value.map(toPlain);
+  if (typeof value === 'object') {
+    const out = {};
+    Object.keys(value).forEach((key) => { out[key] = toPlain(value[key]); });
+    return out;
+  }
+  return value;
+}
+
+async function runBackup() {
+  const button = $('bk-go');
+  setBusy(button, true, '下載中…');
+  $('bk-error').textContent = '';
+  try {
+    const collections = {};
+    const counts = {};
+    for (const name of backupList()) {
+      $('bk-count').textContent = `讀取「${BACKUP_NAMES[name]}」中…`;
+      const snap = await getDocsFromServer(collection(db, name));
+      collections[name] = {};
+      snap.docs.forEach((d) => { collections[name][d.id] = toPlain(d.data()); });
+      counts[name] = snap.size;
+    }
+    const now = new Date();
+    const data = {
+      app: 'cnc-mes', version: 1, exportedAt: now.toISOString(), exportedBy: myEmpNo(),
+      note: '功能⑲ 下載備份；時間欄位存成 {"__time": ISO 時間}', counts, collections
+    };
+    const p = {};
+    new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(now).forEach((x) => { p[x.type] = x.value; });
+    const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `CNC-MES備份_${p.year}${p.month}${p.day}_${p.hour}${p.minute}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    try { localStorage.setItem(BACKUP_LAST_KEY, String(now.getTime())); } catch { /* 沒關係 */ }
+    const total = Object.values(counts).reduce((x, y) => x + y, 0);
+    $('dlg-backup').close();
+    toast(`備份完成：${total.toLocaleString()} 筆，${(blob.size / 1024 / 1024).toFixed(1)} MB`);
+  } catch (err) {
+    $('bk-error').textContent = `備份沒有完成：${errorMessage(err)}（檔案沒有下載，可以再按一次）`;
+    showBackupCount();
+  } finally {
+    setBusy(button, false);
+  }
+}
 </script>
 </body>
 </html>
