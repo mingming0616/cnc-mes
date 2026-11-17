@@ -4,6 +4,7 @@
    ‧.board-page、.bd-…：深色看板（只有 board.html 用）
    注意：機台面板、異動履歷、修正紀錄的畫面維持淺色（跟機台頁共用 board.css），這裡不改它們
    功能⑨：滑鼠拖動地圖的游標、地圖上的字不會被選取；看板的平面圖用滿瀏覽器寬度
+   功能⑭：故障提醒卡片（右上角）、提示音按鈕
    ============================================================ */
 
 /* ==================== 平面圖 ==================== */
@@ -272,4 +273,36 @@ body.board-page { background: var(--bd-bg); color: var(--bd-text); }
 @media (prefers-reduced-motion: reduce) {
   .bd-card.is-alert { animation: none; }
   .bd-card:active { transform: none; }
+}
+
+/* ---------- 功能⑭：提示音按鈕、故障提醒卡片 ---------- */
+.bd-sound {
+  min-height: 40px; padding: 0 12px; border: 1px solid var(--bd-border-2); border-radius: 9px;
+  background: transparent; color: var(--bd-text-3); font: inherit; font-size: 15px; font-weight: 600;
+  cursor: pointer; white-space: nowrap;
+}
+.bd-sound.is-on { color: var(--bd-text); background: var(--bd-surface-3); }
+.bd-sound.is-blocked { color: #fde68a; border-color: #e8b400; animation: bd-sound-blink 1.2s ease-in-out infinite; }
+@keyframes bd-sound-blink { 50% { background: rgba(232, 180, 0, .25); } }
+
+.bd-notify {
+  position: fixed; top: 72px; right: 12px; z-index: 30;
+  display: grid; gap: 10px; width: min(340px, calc(100% - 24px));
+}
+.bd-note {
+  padding: 12px 14px; border-radius: 12px; color: #fff;
+  background: var(--bd-surface-2, #171f30); border: 2px solid var(--c, #D93025); border-left-width: 10px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, .45);
+  animation: bd-note-in .25s ease-out;
+}
+.bd-note-title { font-size: 19px; font-weight: 700; }
+.bd-note-sub { margin: 2px 0 10px; font-size: 15px; color: #a3aec4; }
+.bd-note-actions { display: flex; gap: 8px; justify-content: flex-end; }
+@keyframes bd-note-in { from { opacity: 0; transform: translateY(-8px); } }
+@media (prefers-reduced-motion: reduce) {
+  .bd-note, .bd-sound.is-blocked { animation: none; }
+}
+@media (max-width: 640px) {
+  .bd-sound { min-height: 36px; padding: 0 8px; font-size: 14px; }
+  .bd-notify { top: auto; bottom: 12px; right: 12px; }
 }

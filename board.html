@@ -12,7 +12,7 @@
 <!-- board.css：機台面板、異動履歷、修正紀錄的樣式（跟機台頁共用）；改版時把 v 的數字加 1 -->
 <link rel="stylesheet" href="board.css?v=4">
 <!-- floorplan.css：功能⑧ 深色看板＋平面圖；改版時把 v 的數字加 1（master.html 也有引用） -->
-<link rel="stylesheet" href="floorplan.css?v=2">
+<link rel="stylesheet" href="floorplan.css?v=3">
 </head>
 <body class="board-page">
 
@@ -21,7 +21,11 @@
   <span class="topbar-title">設備看板</span>
   <span id="clock" class="bd-clock"></span>
   <span id="conn" class="conn">連線中…</span>
+  <!-- 功能⑭：提示音開關（這台裝置記住；預設關） -->
+  <button id="btn-sound" class="bd-sound" type="button" aria-pressed="false">🔕 提示音：關</button>
 </header>
+<!-- 功能⑭：故障、品質異常的即時提醒卡片（右上角） -->
+<div id="notify" class="bd-notify" aria-live="assertive"></div>
 
 <main class="page page-wide">
   <!-- 載入中、讀取錯誤時顯示這裡 -->
@@ -129,6 +133,16 @@ const plans = new Map();     // 樓層代號 → { state: 'loading'|'ok'|'none'|
 let planView = null;         // 目前畫在畫面上的平面圖
 let planViewFloor = '';      // planView 是哪一層的
 
+// 功能⑭：故障提醒＋提示音
+//   （這些要放在「開始」之前：下面的開始程式會等資料庫，等完狀態一進來就會用到）
+const SOUND_KEY = 'cncmes-board-sound';        // 這台裝置的提示音開關（'1'＝開；沒設定＝關）
+const NOTIFY_MS = 60 * 1000;                   // 提醒卡片 1 分鐘後自動收起（異常列還是會一直列著）
+const NOTIFY_MAX = 5;                          // 同時最多疊幾張
+const BASE_TITLE = document.title;
+let statusReady = false;                       // 第一次讀到全部狀態之後才開始提醒（打開看板時已經故障的不跳）
+let audioCtx = null;                           // 瀏覽器的聲音產生器（要使用者點過畫面才能出聲）
+let soundOn = false;
+
 // 畫面選擇（單位、樓層、標示的狀態、顯示方式）
 const ui = {
   dept: '', floor: '', highlight: null,
@@ -204,6 +218,7 @@ if (ctx.error) {
     setupTools();
     setupHistoryModule();
     setupPanelModule();
+    setupSound();
     listenStatus();
     $('state').hidden = true;
     $('panel').hidden = false;
@@ -317,6 +332,8 @@ function syncToolButtons() {
 // ---------- 即時監聽全部機台的目前狀態（只有有變動的那幾筆會再讀，不重複讀取） ----------
 function listenStatus() {
   onSnapshot(collection(db, 'machineStatus'), { includeMetadataChanges: true }, (snap) => {
+    // 功能⑭：清掉舊資料前，先找出「剛變成要跳提醒的狀態」的機台
+    const fresh = statusReady ? newAlerts(snap) : [];
     statusMap.clear();
     snap.forEach((d) => {
       statusMap.set(d.id, {
@@ -326,6 +343,8 @@ function listenStatus() {
     });
     setConn(!snap.metadata.fromCache);
     render();
+    if (!snap.metadata.fromCache) statusReady = true;   // 跟資料庫對過一次之後，才算「看板已經開著」
+    fresh.forEach(showNotify);
     refreshStatusPanel();                             // 面板開著時，同步更新「目前」那一行
     refreshHistory();                                 // 履歷開著時，同步更新（沒開就什麼都不做）
   }, (err) => {
@@ -669,6 +688,138 @@ function setupPanelModule() {
     canEdit,                                              // 管理者全部單位、維護員負責單位
     openHistory                                           // 面板「異動履歷」按鈕
   });
+}
+// ============================================================
+// 功能⑭：故障提醒＋提示音
+//   ‧看板開著時，有機台「變成」單位設定裡標「跳出提醒」的狀態（目前是故障、品質異常）就跳提醒
+//   ‧打開看板時已經是那種狀態的不跳（異常列本來就有列）；自己切的不跳；
+//     選了單位時只提醒那個單位的機台（樓層不限，別層的故障也會跳）
+//   ‧右上角卡片：「查看」開那台機的面板、「知道了」關掉；1 分鐘自動收起；最多疊 5 張
+//   ‧提示音：嗶三聲，網頁自己產生（不用音效檔）；這台裝置記住開或關，預設關
+//     瀏覽器規定每次打開或重新整理後要先點一下畫面才能出聲，沒點過時按鈕會閃
+//   ‧看板在背景時，瀏覽器分頁標題變成「(1) 故障 M101」
+//   不多讀資料庫：用看板本來就在監聽的 machineStatus
+// ============================================================
+
+// 這次更新裡，剛變成提醒狀態的機台
+function newAlerts(snap) {
+  const out = [];
+  const mine = myEmpNo();
+  snap.docChanges().forEach((change) => {
+    if (change.type === 'removed') return;
+    const d = change.doc;
+    const data = d.data({ serverTimestamps: 'estimate' });
+    const m = machineOf(d.id);
+    if (!m || (ui.dept && m.deptId !== ui.dept)) return;
+    if (!statusDef(m.deptId, data.status)?.alert) return;
+    const before = statusMap.get(d.id)?.data?.status;
+    if (before === data.status) return;                       // 本來就是這個狀態（例如只改原因、備註）
+    if (d.metadata.hasPendingWrites || data.updatedByEmpNo === mine) return;   // 自己切的
+    out.push({ m, data });
+  });
+  return out;
+}
+
+function showNotify({ m, data }) {
+  const def = statusDef(m.deptId, data.status);
+  const reason = reasonLabel(m.deptId, data.status, data.reasonCode);
+  const when = data.updatedAt?.toDate ? formatTime(data.updatedAt).slice(-5) : '';
+  const box = $('notify');
+  while (box.children.length >= NOTIFY_MAX) box.lastElementChild.remove();
+  const card = document.createElement('div');
+  card.className = 'bd-note';
+  card.dataset.id = m.machineId;
+  card.dataset.label = `${def?.label || data.status} ${m.machineId}`;
+  card.setAttribute('style', colorStyle(def?.color));
+  card.innerHTML = `<div class="bd-note-title">⚠ ${escapeHtml(m.machineId)} ${escapeHtml(def?.label || data.status)}`
+    + `${reason ? `（${escapeHtml(reason)}）` : ''}</div>`
+    + `<div class="bd-note-sub">${escapeHtml(floorName(m.floorId))}`
+    + `${data.updatedByName ? ` · ${escapeHtml(data.updatedByName)}` : ''}${when ? ` ${escapeHtml(when)}` : ''}</div>`
+    + '<div class="bd-note-actions"><button type="button" class="bd-btn" data-act="open">查看</button>'
+    + '<button type="button" class="bd-btn" data-act="close">知道了</button></div>';
+  box.prepend(card);
+  card.timer = setTimeout(() => closeNotify(card), NOTIFY_MS);
+  updateTitle();
+  beep();
+}
+
+function closeNotify(card) {
+  clearTimeout(card.timer);
+  card.remove();
+  updateTitle();
+}
+
+// 分頁標題：有提醒卡片時顯示「(2) 故障 M101｜設備看板」
+function updateTitle() {
+  const cards = $('notify').children;
+  document.title = cards.length ? `(${cards.length}) ${cards[0].dataset.label}｜${BASE_TITLE}` : BASE_TITLE;
+}
+
+$('notify').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-act]');
+  const card = event.target.closest('.bd-note');
+  if (!button || !card) return;
+  if (button.dataset.act === 'open') openStatusPanel(card.dataset.id);
+  closeNotify(card);
+});
+
+// ---------- 提示音 ----------
+function setupSound() {
+  try { soundOn = localStorage.getItem(SOUND_KEY) === '1'; } catch { soundOn = false; }
+  $('btn-sound').addEventListener('click', () => {
+    soundOn = !soundOn;
+    try { localStorage.setItem(SOUND_KEY, soundOn ? '1' : '0'); } catch { /* 存不了也沒關係 */ }
+    if (soundOn) { unlockAudio(); beep(); }               // 打開時嗶一次，確認聽得到
+    syncSoundButton();
+  });
+  // 瀏覽器要使用者點過畫面才能出聲：點畫面任何地方就解鎖
+  document.addEventListener('pointerdown', unlockAudio, { capture: true });
+  document.addEventListener('keydown', unlockAudio, { capture: true });
+  syncSoundButton();
+}
+
+function unlockAudio() {
+  if (!soundOn) return;
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    if (!audioCtx) audioCtx = new Ctx();
+    if (audioCtx.state === 'suspended') audioCtx.resume().then(syncSoundButton, () => {});
+  } catch { /* 這台裝置不支援聲音就算了 */ }
+  syncSoundButton();
+}
+
+// 聲音產生器已經解鎖、可以出聲了嗎（用 function：開始程式執行時就要用到）
+function audioReady() { return !!audioCtx && audioCtx.state === 'running'; }
+
+function syncSoundButton() {
+  const button = $('btn-sound');
+  const blocked = soundOn && !audioReady();
+  button.textContent = !soundOn ? '🔕 提示音：關' : blocked ? '🔔 點一下畫面啟用提示音' : '🔔 提示音：開';
+  button.setAttribute('aria-pressed', String(soundOn));
+  button.classList.toggle('is-on', soundOn);
+  button.classList.toggle('is-blocked', blocked);
+}
+
+// 嗶三聲（880 Hz，每聲 0.15 秒）
+function beep() {
+  if (!soundOn || !audioReady()) return;
+  try {
+    const t0 = audioCtx.currentTime + 0.02;
+    for (let i = 0; i < 3; i += 1) {
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.type = 'square';
+      osc.frequency.value = 880;
+      const t = t0 + i * 0.25;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.25, t + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.15);
+      osc.connect(gain).connect(audioCtx.destination);
+      osc.start(t);
+      osc.stop(t + 0.16);
+    }
+  } catch { /* 出不了聲就算了，畫面上的提醒還在 */ }
 }
 </script>
 </body>
