@@ -15,7 +15,8 @@ import {
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-auth.js';
 import {
   getFirestore, doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp, onSnapshot,
-  query, where, orderBy, limit, startAfter, Timestamp, getDocFromServer, getDocsFromServer
+  query, where, orderBy, limit, startAfter, Timestamp, getDocFromServer, getDocsFromServer,
+  getCountFromServer
 } from 'https://www.gstatic.com/firebasejs/12.18.0/firebase-firestore.js';
 
 export const app = initializeApp(firebaseConfig);
@@ -26,10 +27,12 @@ export const db = getFirestore(app);
 //   功能④（異動履歷）加了查詢用的 query、where、orderBy、limit、startAfter、Timestamp；
 //   功能⑤（修正紀錄）加了 getDocFromServer、getDocsFromServer：一定跟資料庫要最新的，
 //     連不上就直接失敗（不拿這台裝置上的暫存），修正前確認範圍用。
+//   功能⑯（全機台異動履歷）加了 getCountFromServer：先數有幾筆再決定要不要讀（每 1,000 筆約算 1 次讀取）
 //   都只有新增，原本用 common.js 的頁面不用改
 export {
   doc, getDoc, getDocs, setDoc, collection, writeBatch, serverTimestamp, onSnapshot,
-  query, where, orderBy, limit, startAfter, Timestamp, getDocFromServer, getDocsFromServer
+  query, where, orderBy, limit, startAfter, Timestamp, getDocFromServer, getDocsFromServer,
+  getCountFromServer
 };
 
 // 角色代碼 → 畫面顯示名稱

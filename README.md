@@ -42,7 +42,8 @@ CNC 精密零件代工廠銑床課自建的工廠製造管理執行系統（MES�
 
 | 檔案 | 版本號寫在 |
 |---|---|
-| `common.js`、`history.js`、`status-panel.js`、`board.css` | `board.html`、`machine.html` |
+| `common.js` | `board.html`、`machine.html`、`list.html` |
+| `history.js`、`status-panel.js`、`board.css` | `board.html`、`machine.html` |
 | `floorplan.js`、`floorplan.css` | `board.html`、`master.html` |
 | `qrcode.js` | `labels.html` |
 | `style.css` | 各頁 |

@@ -63,6 +63,18 @@
   }
   .ls-chip.is-unset { background: none; color: var(--ink-soft); border: 1px dashed var(--rule-strong); }
   .ls-empty { padding: 28px 16px; color: var(--ink-soft); text-align: center; }
+  /* 功能⑯ 異動履歷 */
+  .ev-bar .field input[type="date"], .ev-bar .field input[type="text"] {
+    min-height: 48px; padding: 0 12px; border: 2px solid var(--rule-strong); border-radius: var(--radius);
+    font: inherit; background: #fff; color: var(--ink);
+  }
+  .ev-bar .ev-machine input { width: 130px; text-transform: uppercase; }
+  .ev-ask { margin: 0 0 12px; padding: 14px 16px; background: #FFF8E1; border: 2px solid #E8B400; border-radius: 8px; }
+  .ev-ask p { margin: 0 0 10px; font-weight: 600; }
+  .ev-err { margin: 0 0 12px; padding: 12px 16px; background: #FDECEA; border: 2px solid var(--error); border-radius: 8px; color: var(--error); word-break: break-all; }
+  .ev-fixed { display: inline-block; margin-left: 6px; font-size: 13px; padding: 0 6px; border: 1px solid var(--ink); border-radius: 4px; }
+  .ev-kind-import { font-size: 13px; padding: 0 6px; border: 1px dashed var(--rule-strong); border-radius: 4px; }
+  .ls-arrow { color: var(--ink-soft); padding: 0 4px; }
   .ls-soon { padding: 40px 16px; text-align: center; color: var(--ink-soft); background: var(--panel); border: 2px dashed var(--rule-strong); border-radius: 8px; }
 
   @media (max-width: 640px) {
@@ -73,6 +85,8 @@
     .ls-table .sm-hide { display: none; }
     .ls-wrap { max-height: none; }
     .ls-tab { padding: 0 14px; }
+    .ev-bar .ev-date { flex: 1 1 calc(50% - 6px); }
+    .ev-bar .ev-date input { width: 100%; }
   }
 </style>
 </head>
@@ -91,7 +105,7 @@
   <section id="panel" hidden>
     <div class="ls-tabs" role="tablist">
       <button type="button" class="ls-tab" role="tab" id="tab-list" aria-selected="true" aria-controls="sec-list">設備清單</button>
-      <button type="button" class="ls-tab" role="tab" id="tab-events" aria-selected="false" aria-controls="sec-events">異動履歷<span class="soon">準備中</span></button>
+      <button type="button" class="ls-tab" role="tab" id="tab-events" aria-selected="false" aria-controls="sec-events">異動履歷</button>
     </div>
 
     <!-- ========== 分頁一：設備清單（功能⑮） ========== -->
@@ -123,7 +137,44 @@
 
     <!-- ========== 分頁二：異動履歷（功能⑯，下一個做） ========== -->
     <section id="sec-events" role="tabpanel" aria-labelledby="tab-events" hidden>
-      <div class="ls-soon">全部機台的異動履歷、依日期區間匯出 CSV：準備中（功能⑯）。<br>單台機的履歷可以先從看板或機台頁看。</div>
+      <form id="ev-form" class="ls-bar ev-bar" novalidate>
+        <label class="field ev-date"><span>起日（生產日）</span><input id="ev-from" type="date" required></label>
+        <label class="field ev-date"><span>迄日（生產日）</span><input id="ev-to" type="date" required></label>
+        <label class="field ev-machine"><span>設備編號（空白＝全部）</span>
+          <input id="ev-machine" type="text" list="ev-machines" autocomplete="off" placeholder="全部" maxlength="12"></label>
+        <datalist id="ev-machines"></datalist>
+        <button id="ev-go" class="btn primary" type="submit">查詢</button>
+      </form>
+      <div id="ev-ask" class="ev-ask" hidden>
+        <p id="ev-ask-text"></p>
+        <span class="ls-actions">
+          <button id="ev-ask-cancel" class="btn" type="button">取消</button>
+          <button id="ev-ask-ok" class="btn primary" type="button">繼續讀取</button>
+        </span>
+      </div>
+      <div id="ev-err" class="ev-err" hidden></div>
+      <div id="ev-result" hidden>
+        <div class="ls-bar">
+          <label class="field"><span>樓層</span><select id="ev-floor"></select></label>
+          <label class="field"><span>改成的狀態</span><select id="ev-status"></select></label>
+        </div>
+        <div class="ls-sum">
+          <span id="ev-sum" class="ls-sum-text"></span>
+          <span class="ls-actions">
+            <button id="ev-csv" class="btn primary" type="button" hidden>匯出 CSV</button>
+          </span>
+        </div>
+        <div class="ls-wrap">
+          <table class="ls-table">
+            <thead><tr id="ev-head"></tr></thead>
+            <tbody id="ev-rows"></tbody>
+          </table>
+          <div id="ev-empty" class="ls-empty" hidden>這段期間沒有異動</div>
+        </div>
+        <p class="muted">「已修正」＝這筆後來被修正過，畫面顯示修正後的內容（CSV 有修正理由）。樓層以設備目前所在的樓層為準。
+          要少讀一點：縮短日期、或指定設備編號（樓層、狀態是讀出來之後才篩的，不會比較省）。</p>
+      </div>
+      <p id="ev-hint" class="muted">選日期按「查詢」。一次最多 31 天；超過 1,000 筆會先問你要不要讀。</p>
     </section>
   </section>
 </main>
@@ -135,12 +186,15 @@
 //     讀取量：開頁時讀一次單位、樓層、設備（約 210 筆），再監聽全部機台的目前狀態（約 200 筆）；
 //             之後只有變動的那台會再讀 1 次，不定時重抓
 //     誰能用：三種角色都能看；匯出 CSV 只有管理者、維護員（CSV 裡有更新人姓名）
-//   功能⑯ 異動履歷：下一個功能再做
+//   功能⑯ 異動履歷：依生產日區間（最多 31 天）、設備編號查全部機台的狀態異動，匯出 CSV
+//     讀取量：先數筆數（每 1,000 筆約 1 次）；讀出來的每筆 1 次；再查有沒有被修正（每 30 筆約 1 次）
+//             超過 1,000 筆先問；最多讀最新 3,000 筆
+//     不用新索引：全部機台用 createdAt 的自動索引；指定機台用已經建好的 machineId＋createdAt 降序索引
 // ============================================================
 import {
-  db, collection, getDocs, onSnapshot,
-  requireUser, errorMessage, escapeHtml, toast, formatTime, formatDuration, colorStyle, safeColor
-} from './common.js?v=5';
+  db, collection, getDocs, getDoc, doc, onSnapshot, query, where, orderBy, limit, Timestamp, getCountFromServer,
+  requireUser, errorMessage, escapeHtml, toast, formatTime, formatDuration, colorStyle, safeColor, prodDateAndShift
+} from './common.js?v=6';
 
 const $ = (id) => document.getElementById(id);
 const FILTER_KEY = 'cncmes-list-filters-v1';    // 這台裝置上次的篩選、排序
@@ -150,7 +204,9 @@ let me = null;               // 登入者的人員資料
 let depts = [];              // 單位（含狀態、原因設定）
 let floors = [];             // 使用中的樓層
 let machines = [];           // 使用中的設備
+let allMachines = [];        // 全部設備（含不使用）：履歷裡可能有已經不使用的機台
 const statusMap = new Map(); // 設備編號 → 目前狀態
+let shiftSetting = null;     // 班別設定（生產日從幾點開始、班別名稱）
 
 // 畫面選擇
 const ui = { q: '', dept: '', floor: '', status: '', brand: '', sort: 'default', dir: 1 };
@@ -223,6 +279,338 @@ function setConn(online) {
   $('conn').classList.toggle('is-offline', !online);
 }
 
+// ============================================================
+// 功能⑯ 異動履歷（全部機台）
+//   （常數要放在「開始」之前：下面的開始程式會等資料庫，等完就會用到這些常數）
+// ============================================================
+const EV_MAX_DAYS = 31;        // 一次最多查幾天
+const EV_ASK_OVER = 1000;      // 超過幾筆先問要不要讀
+const EV_MAX_DOCS = 3000;      // 最多讀幾筆（最新的）
+const DAILY_READS = 50000;     // 免費方案每天讀取上限
+const KIND_LABEL = { first: '第一次設定', status: '狀態變更', reason: '原因變更', data: '資料更新', unknown: '狀態變更', import: 'v3.3 匯入' };
+
+const ev = {
+  rows: [],          // 查回來的狀態變更（已套用修正），新到舊
+  reads: 0,          // 這次查詢大約用掉幾次讀取
+  pending: null,     // 等使用者按「繼續讀取」的查詢
+  label: '',         // 這次查的範圍（CSV 檔名用）
+  floor: '', status: '', sort: 'time', dir: -1
+};
+
+const EV_COLUMNS = [
+  { key: 'time', label: '時間' },
+  { key: 'prodDate', label: '生產日', cls: 'sm-hide' },
+  { key: 'shift', label: '班別', cls: 'sm-hide' },
+  { key: 'machineId', label: '設備編號', cls: 'col-id' },
+  { key: 'floor', label: '樓層', cls: 'sm-hide' },
+  { key: 'kind', label: '類型', cls: 'sm-hide' },
+  { key: 'to', label: '從 → 改成' },
+  { key: 'reason', label: '原因' },
+  { key: 'duration', label: '上一個狀態持續', cls: 'col-num' },
+  { key: 'partNo', label: '料號' },
+  { key: 'opNo', label: '製程' },
+  { key: 'note', label: '備註', cls: 'col-wide' },
+  { key: 'by', label: '誰改的' }
+];
+
+const tsMs = (t) => (t && typeof t.toMillis === 'function' ? t.toMillis() : 0);
+const evMachine = (id) => allMachines.find((m) => m.machineId === id);
+const statusDefOf = (deptId, code) => deptOf(deptId)?.statuses?.find((s) => s.code === code)
+  || depts.map((d) => d.statuses?.find((s) => s.code === code)).find(Boolean) || null;
+const statusText = (deptId, code) => (code == null ? '（第一次）' : (statusDefOf(deptId, code)?.label || code));
+const reasonText = (deptId, status, code) => (code
+  ? (deptOf(deptId)?.reasons?.[status]?.find((r) => r.code === code)?.label || code) : '');
+const shiftText = (id) => shiftSetting?.shifts?.find((s) => s.id === id)?.name || id || '';
+
+// 今天的生產日 YYYY-MM-DD
+const todayProd = () => prodDateAndShift(new Date(), shiftSetting).prodDate;
+
+// 生產日 YYYY-MM-DD 開始的時間（當天 08:00 台灣時間）→ 毫秒
+//   台灣是 UTC+8、沒有日光節約時間：台灣的 h 點＝世界標準時間的 h-8 點
+function prodDayStartMs(value) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(value || '');
+  if (!m) return NaN;
+  const [h, mi] = String(shiftSetting?.dayStartTime || '08:00').split(':').map(Number);
+  return Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]), (h || 0) - 8, mi || 0);
+}
+
+function setupEvents() {
+  const today = todayProd();
+  $('ev-from').value = today;
+  $('ev-to').value = today;
+  $('ev-from').max = today;
+  $('ev-to').max = today;
+  $('ev-machines').innerHTML = [...allMachines].sort((a, b) => naturalCompare(a.machineId, b.machineId))
+    .map((m) => `<option value="${escapeHtml(m.machineId)}"></option>`).join('');
+  const opt = (value, label) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+  $('ev-floor').innerHTML = opt('', '全部樓層') + floors.map((f) => opt(f.floorId, f.name || f.floorId)).join('');
+  const seen = new Map();
+  depts.forEach((d) => (d.statuses || []).forEach((s) => { if (!seen.has(s.code)) seen.set(s.code, s.label || s.code); }));
+  $('ev-status').innerHTML = opt('', '全部狀態') + [...seen].map(([code, label]) => opt(code, label)).join('');
+  $('ev-csv').hidden = !canExport();
+
+  $('ev-form').addEventListener('submit', (event) => { event.preventDefault(); startQuery(); });
+  $('ev-ask-cancel').addEventListener('click', () => { ev.pending = null; $('ev-ask').hidden = true; setEvBusy(false); });
+  $('ev-ask-ok').addEventListener('click', () => {
+    const job = ev.pending;
+    ev.pending = null;
+    $('ev-ask').hidden = true;
+    if (job) readEvents(job);
+  });
+  $('ev-floor').addEventListener('change', () => { ev.floor = $('ev-floor').value; renderEvents(); });
+  $('ev-status').addEventListener('change', () => { ev.status = $('ev-status').value; renderEvents(); });
+  $('ev-head').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-sort]');
+    if (!button) return;
+    const key = button.dataset.sort;
+    if (ev.sort === key) ev.dir = -ev.dir; else { ev.sort = key; ev.dir = key === 'time' ? -1 : 1; }
+    renderEvents();
+  });
+  $('ev-rows').addEventListener('click', (event) => {
+    const tr = event.target.closest('tr[data-id]');
+    if (tr) location.href = `machine.html?machineId=${encodeURIComponent(tr.dataset.id)}`;
+  });
+  $('ev-csv').addEventListener('click', exportEventsCsv);
+}
+
+function setEvBusy(busy, text = '查詢中…') {
+  $('ev-go').disabled = busy;
+  $('ev-go').textContent = busy ? text : '查詢';
+}
+
+function showEvError(message) {
+  $('ev-err').textContent = message;
+  $('ev-err').hidden = !message;
+}
+
+// 按「查詢」：檢查條件 → 先數筆數 → 太多就先問
+async function startQuery() {
+  showEvError('');
+  $('ev-ask').hidden = true;
+  const from = $('ev-from').value;
+  const to = $('ev-to').value;
+  const machineId = $('ev-machine').value.trim().toUpperCase();
+  $('ev-machine').value = machineId;
+  const startMs = prodDayStartMs(from);
+  const endMs = prodDayStartMs(to) + 24 * 60 * 60 * 1000;   // 迄日的隔天 08:00
+  if (Number.isNaN(startMs) || Number.isNaN(endMs)) { showEvError('請選起日和迄日'); return; }
+  if (from > to) { showEvError('起日不能比迄日晚'); return; }
+  const days = Math.round((endMs - startMs) / (24 * 60 * 60 * 1000));
+  if (days > EV_MAX_DAYS) { showEvError(`一次最多查 ${EV_MAX_DAYS} 天（現在選了 ${days} 天），請縮短日期`); return; }
+  if (machineId && !evMachine(machineId)) { showEvError(`找不到設備 ${machineId}，請確認編號`); return; }
+
+  const parts = [where('createdAt', '>=', Timestamp.fromMillis(startMs)), where('createdAt', '<', Timestamp.fromMillis(endMs))];
+  if (machineId) parts.unshift(where('machineId', '==', machineId));
+  const job = { parts, machineId, label: `${from.replaceAll('-', '')}-${to.replaceAll('-', '')}${machineId ? `_${machineId}` : ''}` };
+
+  setEvBusy(true, '計算筆數…');
+  try {
+    const snap = await getCountFromServer(query(collection(db, 'machineEvents'), ...parts));
+    const count = snap.data().count;
+    job.count = count;
+    job.countReads = Math.max(1, Math.ceil(count / 1000));
+    if (count > EV_ASK_OVER) {
+      const n = Math.min(count, EV_MAX_DOCS);
+      const reads = n + Math.ceil(n / 30) + job.countReads;
+      const pct = Math.round((reads / DAILY_READS) * 1000) / 10;
+      $('ev-ask-text').textContent = count > EV_MAX_DOCS
+        ? `共 ${count.toLocaleString()} 筆，超過上限，只會讀最新 ${EV_MAX_DOCS.toLocaleString()} 筆（約 ${reads.toLocaleString()} 次讀取，佔每天免費額度 ${pct}%）。建議縮短日期或指定設備。要繼續嗎？`
+        : `共 ${count.toLocaleString()} 筆，約 ${reads.toLocaleString()} 次讀取（佔每天免費額度 ${pct}%）。要繼續嗎？`;
+      ev.pending = job;
+      $('ev-ask').hidden = false;
+      setEvBusy(true, '等你確認…');
+      return;
+    }
+    await readEvents(job);
+  } catch (err) {
+    showEvError(evErrorText(err));
+    setEvBusy(false);
+  }
+}
+
+// 讀出紀錄 → 查修正 → 整理成畫面的每一列
+async function readEvents(job) {
+  setEvBusy(true, '讀取中…');
+  try {
+    const snap = await getDocs(query(collection(db, 'machineEvents'), ...job.parts, orderBy('createdAt', 'desc'), limit(EV_MAX_DOCS)));
+    const docs = snap.docs.map((d) => ({ id: d.id, data: d.data() }));
+    const statusDocs = docs.filter((d) => d.data.eventType !== 'correction');
+
+    // 有沒有被修正：修正紀錄的 eventIds 列出它改到的每一筆（跟單台機的履歷用同一個方法，不用新索引）
+    const fixes = new Map();
+    docs.filter((d) => d.data.eventType === 'correction').forEach((d) => fixes.set(d.id, d));
+    let fixReads = 0;
+    const ids = statusDocs.map((d) => d.id);
+    for (let i = 0; i < ids.length; i += 30) {
+      const fs = await getDocs(query(collection(db, 'machineEvents'), where('eventIds', 'array-contains-any', ids.slice(i, i + 30))));
+      fixReads += Math.max(1, fs.size);
+      fs.docs.forEach((d) => fixes.set(d.id, { id: d.id, data: d.data() }));
+    }
+    const fixList = [...fixes.values()].sort((a, b) => tsMs(a.data.createdAt) - tsMs(b.data.createdAt));
+
+    ev.rows = buildRows(statusDocs, fixList);
+    ev.reads = (job.countReads || 1) + Math.max(1, docs.length) + fixReads;
+    ev.label = job.label;
+    ev.truncated = (job.count || 0) > EV_MAX_DOCS;
+    ev.count = job.count || docs.length;
+    $('ev-result').hidden = false;
+    $('ev-hint').hidden = true;
+    renderEvents();
+  } catch (err) {
+    showEvError(evErrorText(err));
+  } finally {
+    setEvBusy(false);
+  }
+}
+
+// 套用修正、判斷是哪種異動，整理成畫面的每一列（新到舊）
+function buildRows(statusDocs, fixList) {
+  const applied = statusDocs.map((item) => {
+    const data = { ...item.data };
+    const used = [];
+    for (const f of fixList) {
+      const c = f.data;
+      if (c.machineId !== data.machineId || tsMs(data.createdAt) < tsMs(c.correctsEventAt)) continue;
+      let hit = false;
+      ['reasonCode', 'partNo', 'opNo', 'note'].forEach((key) => {
+        const change = c.changes?.[key];
+        if (change && Array.isArray(change.eventIds) && change.eventIds.includes(item.id)) {
+          data[key] = String(change.to ?? '');
+          hit = true;
+        }
+      });
+      if (hit) used.push(c);
+    }
+    return { id: item.id, data, orig: item.data, fixes: used };
+  });
+
+  // 同一台機舊到新排，跟前一筆比較才知道是狀態變更、原因變更還是資料更新
+  const byMachine = new Map();
+  applied.forEach((r) => {
+    if (!byMachine.has(r.data.machineId)) byMachine.set(r.data.machineId, []);
+    byMachine.get(r.data.machineId).push(r);
+  });
+  byMachine.forEach((list) => {
+    list.sort((a, b) => tsMs(a.data.createdAt) - tsMs(b.data.createdAt));
+    list.forEach((r, i) => {
+      const e = r.data;
+      const older = list[i - 1];
+      if (e.eventType === 'import') r.kind = 'import';
+      else if (e.fromStatus == null) r.kind = 'first';
+      else if (e.fromStatus !== e.toStatus) r.kind = 'status';
+      else if (older) r.kind = (older.orig.reasonCode || '') !== (r.orig.reasonCode || '') ? 'reason' : 'data';
+      else r.kind = 'unknown';
+    });
+  });
+
+  return applied.map((r) => {
+    const e = r.data;
+    const m = evMachine(e.machineId);
+    const created = tsMs(e.createdAt);
+    const since = tsMs(e.fromStatusSince);
+    // 上一個狀態持續多久：只有狀態或原因變了（重新計時）才有意義
+    //   （同狀態、前一筆不在這次查詢範圍內的，分不出是不是原因變更，就不顯示）
+    const timed = ['status', 'reason', 'import'].includes(r.kind) && since && created >= since;
+    return {
+      id: r.id, e, kind: r.kind, fixes: r.fixes,
+      time: created,
+      timeText: created ? formatTime(e.createdAt) : '',
+      prodDate: e.prodDate || '',
+      shift: shiftText(e.shiftId),
+      machineId: e.machineId || '',
+      floorId: m?.floorId || '',
+      floor: m ? floorName(m.floorId) : '',
+      floorOrder: m ? floorIndex(m.floorId) : 999,
+      fromText: statusText(e.deptId, e.fromStatus),
+      toCode: e.toStatus,
+      to: statusText(e.deptId, e.toStatus),
+      toColor: safeColor(statusDefOf(e.deptId, e.toStatus)?.color),
+      reason: reasonText(e.deptId, e.toStatus, e.reasonCode),
+      duration: timed ? created - since : null,
+      partNo: e.partNo || '',
+      opNo: e.opNo || '',
+      note: e.note || '',
+      by: e.createdByName || '',
+      byEmpNo: e.createdByEmpNo || ''
+    };
+  });
+}
+
+function evVisibleRows() {
+  const rows = ev.rows.filter((r) => (!ev.floor || r.floorId === ev.floor) && (!ev.status || r.toCode === ev.status));
+  const cmp = {
+    time: (a, b) => a.time - b.time,
+    prodDate: (a, b) => naturalCompare(a.prodDate, b.prodDate) || a.time - b.time,
+    machineId: (a, b) => naturalCompare(a.machineId, b.machineId),
+    floor: (a, b) => a.floorOrder - b.floorOrder,
+    duration: (a, b) => (a.duration ?? 0) - (b.duration ?? 0)
+  }[ev.sort] || ((a, b) => naturalCompare(a[ev.sort], b[ev.sort]));
+  // 依持續時間排序時，沒有持續時間的不管正排反排都放最後
+  const none = (r) => ev.sort === 'duration' && r.duration === null;
+  return rows.sort((a, b) => (none(a) - none(b)) || (cmp(a, b) * ev.dir) || (b.time - a.time));
+}
+
+function renderEvents() {
+  $('ev-head').innerHTML = EV_COLUMNS.map((c) => {
+    const on = ev.sort === c.key;
+    const arrow = on ? (ev.dir === 1 ? '▲' : '▼') : '';
+    return `<th class="${c.cls || ''}"${on ? ` aria-sort="${ev.dir === 1 ? 'ascending' : 'descending'}"` : ''}>`
+      + `<button type="button" data-sort="${c.key}">${c.label}<span aria-hidden="true">${arrow}</span></button></th>`;
+  }).join('');
+  const rows = evVisibleRows();
+  $('ev-rows').innerHTML = rows.map((r) => (
+    `<tr data-id="${escapeHtml(r.machineId)}">`
+    + `<td>${escapeHtml(r.timeText)}</td>`
+    + `<td class="sm-hide">${escapeHtml(r.prodDate)}</td>`
+    + `<td class="sm-hide">${escapeHtml(r.shift)}</td>`
+    + `<td class="col-id">${escapeHtml(r.machineId)}</td>`
+    + `<td class="sm-hide">${escapeHtml(r.floor)}</td>`
+    + `<td class="sm-hide">${r.kind === 'import' ? `<span class="ev-kind-import">${KIND_LABEL.import}</span>` : escapeHtml(KIND_LABEL[r.kind])}</td>`
+    + `<td>${r.e.fromStatus == null ? '' : `${escapeHtml(r.fromText)}<span class="ls-arrow">→</span>`}`
+    + `<span class="ls-chip" style="${colorStyle(r.toColor)}">${escapeHtml(r.to)}</span></td>`
+    + `<td>${escapeHtml(r.reason)}</td>`
+    + `<td class="col-num">${r.duration === null ? '' : escapeHtml(formatDuration(r.duration))}</td>`
+    + `<td>${escapeHtml(r.partNo)}</td>`
+    + `<td>${escapeHtml(r.opNo)}</td>`
+    + `<td class="col-wide">${escapeHtml(r.note)}${r.fixes.length ? '<span class="ev-fixed">已修正</span>' : ''}</td>`
+    + `<td>${escapeHtml(r.by)}</td>`
+    + '</tr>'
+  )).join('');
+  $('ev-empty').hidden = rows.length > 0;
+  const filtered = rows.length < ev.rows.length ? `（篩選後；查到 ${ev.rows.length} 筆）` : '';
+  const cut = ev.truncated ? `；超過上限，只讀了最新 ${EV_MAX_DOCS.toLocaleString()} 筆` : '';
+  $('ev-sum').textContent = `共 ${rows.length} 筆${filtered}${cut}｜這次約用了 ${ev.reads.toLocaleString()} 次讀取`;
+}
+
+// 匯出 CSV：照目前的篩選、排序
+function exportEventsCsv() {
+  if (!canExport()) return;
+  const rows = evVisibleRows();
+  if (!rows.length) { toast('沒有資料可以匯出', 'error'); return; }
+  const head = ['時間', '生產日', '班別', '設備編號', '單位', '樓層', '類型', '從狀態', '改成狀態', '原因',
+    '上一個狀態持續(分鐘)', '料號', '製程', '備註', '更新人', '更新人工號', '已修正', '修正理由'];
+  const lines = [head, ...rows.map((r) => [
+    r.timeText, r.prodDate, r.shift, r.machineId, deptOf(r.e.deptId)?.name || r.e.deptId || '', r.floor,
+    KIND_LABEL[r.kind], r.e.fromStatus == null ? '' : r.fromText, r.to, r.reason,
+    r.duration === null ? '' : Math.floor(r.duration / 60000),
+    r.partNo, r.opNo, r.note, r.by, r.byEmpNo,
+    r.fixes.length ? '是' : '', r.fixes.map((f) => f.correctionReason || '').filter(Boolean).join('；')
+  ])].map((cols) => cols.map(csvCell).join(','));
+  downloadCsv(lines, `異動履歷_${ev.label}.csv`);
+  toast(`已匯出 ${rows.length} 筆`);
+}
+
+// 錯誤訊息：缺索引時 Firebase 會附建立索引的網址，管理者才看得到網址
+function evErrorText(err) {
+  const url = /https:\/\/console\.firebase\.google\.com\S+/.exec(err?.message || '')?.[0];
+  if (err?.code === 'failed-precondition' && url) {
+    return me.role === 'admin'
+      ? `需要建立索引才能查詢。請打開這個網址按「建立」，等 3～5 分鐘再查一次：${url}`
+      : '需要管理者先建立索引才能查詢，請截圖給管理者';
+  }
+  return errorMessage(err);
+}
+
 // ---------- 開始：權限檢查、讀主檔、監聽狀態 ----------
 const ctx = await requireUser();
 if (ctx.error) {
@@ -233,6 +621,7 @@ if (ctx.error) {
     await loadMaster();
     setupFilters();
     setupTabs();
+    setupEvents();
     listenStatus();
     $('state').hidden = true;
     $('panel').hidden = false;
@@ -242,16 +631,18 @@ if (ctx.error) {
 }
 
 async function loadMaster() {
-  const [deptSnap, floorSnap, machineSnap] = await Promise.all([
+  const [deptSnap, floorSnap, machineSnap, shiftSnap] = await Promise.all([
     getDocs(collection(db, 'departments')),
     getDocs(collection(db, 'floors')),
-    getDocs(collection(db, 'machines'))
+    getDocs(collection(db, 'machines')),
+    getDoc(doc(db, 'settings', 'shifts'))
   ]);
+  shiftSetting = shiftSnap.exists() ? shiftSnap.data() : null;
   depts = deptSnap.docs.map((d) => ({ ...d.data(), id: d.id })).sort(bySortOrder('id'));
   floors = floorSnap.docs.map((d) => ({ ...d.data(), floorId: d.id }))
     .filter((f) => f.active === true).sort(bySortOrder('floorId'));
-  machines = machineSnap.docs.map((d) => ({ ...d.data(), machineId: d.id }))
-    .filter((m) => m.active === true);
+  allMachines = machineSnap.docs.map((d) => ({ ...d.data(), machineId: d.id }));
+  machines = allMachines.filter((m) => m.active === true);
 }
 
 // 監聽全部機台的目前狀態（跟看板一樣：只有變動的那台會再讀）
@@ -442,17 +833,21 @@ function exportCsv() {
     r.partNo, r.opNo, r.note,
     r.updatedAt ? formatTime(r.updatedAt) : '', r.updatedBy, r.updatedByEmpNo
   ])].map((cols) => cols.map(csvCell).join(','));
-  // 開頭加 BOM（﻿），Windows 的 Excel 才會用 UTF-8 讀，中文不會亂碼
-  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  downloadCsv(lines, `設備清單_${stamp()}.csv`);
+  toast(`已匯出 ${rows.length} 台`);
+}
+
+// 下載 CSV：開頭加 BOM（\uFEFF），Windows 的 Excel 才會用 UTF-8 讀，中文不會亂碼
+function downloadCsv(lines, filename) {
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
-  a.download = `設備清單_${stamp()}.csv`;
+  a.download = filename;
   document.body.appendChild(a);
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
-  toast(`已匯出 ${rows.length} 台`);
 }
 </script>
 </body>
