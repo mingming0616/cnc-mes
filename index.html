@@ -34,6 +34,24 @@
   <button id="btn-retry" class="btn" type="button" hidden>重新整理</button>
 </div>
 
+<!-- ========== 功能⑰：第一次登入，先設定新密碼 ========== -->
+<main id="view-forcepw" class="login" hidden>
+  <form id="forcepw-form" class="plate" novalidate>
+    <div class="plate-head">
+      <p class="brand brand-lg">CNC MES</p>
+      <p class="plate-sub">請先設定你自己的密碼</p>
+    </div>
+    <p id="forcepw-who" style="font-weight:600;margin:0"></p>
+    <p class="muted">管理者給你的是臨時密碼。設定好新密碼才能使用系統，之後請用新密碼登入。</p>
+    <label class="field"><span>目前（臨時）密碼</span><input id="fp-current" type="password" autocomplete="current-password"></label>
+    <label class="field"><span>新密碼（至少 8 碼）</span><input id="fp-new" type="password" autocomplete="new-password"></label>
+    <label class="field"><span>再輸入一次新密碼</span><input id="fp-confirm" type="password" autocomplete="new-password"></label>
+    <p id="fp-error" class="form-error" role="alert"></p>
+    <button id="fp-save" class="btn primary block" type="submit">設定新密碼</button>
+    <button id="fp-logout" class="btn block" type="button">登出</button>
+  </form>
+</main>
+
 <!-- ========== 登入畫面 ========== -->
 <main id="view-login" class="login" hidden>
   <form id="login-form" class="plate" novalidate>
@@ -112,7 +130,7 @@
 // ============================================================
 import {
   db, doc, getDoc, getDocFromServer, writeBatch, serverTimestamp,
-  watchAuth, login, logout, loadProfile, changePassword, myEmpNo,
+  watchAuth, login, logout, loadProfile, changePassword, myEmpNo, markPasswordChanged,
   normalizeEmpNo, EMPNO_PATTERN, ROLE_LABELS, errorMessage, toast, setBusy
 } from './common.js';
 
@@ -238,7 +256,7 @@ if (new URLSearchParams(location.search).get('msg') === 'inactive') {
 
 // 三個畫面一次只顯示一個
 function show(viewId) {
-  for (const id of ['view-loading', 'view-login', 'view-home']) {
+  for (const id of ['view-loading', 'view-login', 'view-home', 'view-forcepw']) {
     $(id).hidden = id !== viewId;
   }
 }
@@ -264,6 +282,14 @@ watchAuth(async (user) => {
       await logout();   // 登出後會再跑一次這段，顯示登入畫面和提示
       return;
     }
+    // 功能⑰：被要求改密碼 → 先設定新密碼，改完才進首頁（或回到機台頁）
+    if (profile.mustChangePassword === true) {
+      $('forcepw-form').reset();
+      $('fp-error').textContent = '';
+      $('forcepw-who').textContent = `${profile.empNo} ${profile.name}`;
+      show('view-forcepw');
+      return;
+    }
     if (returnUrl) {     // 功能⑥：從機台頁來的，直接回到那台機
       location.replace(returnUrl);
       return;
@@ -278,6 +304,40 @@ watchAuth(async (user) => {
 });
 
 $('btn-retry').addEventListener('click', () => location.reload());
+
+// ---------- 功能⑰：第一次登入設定新密碼 ----------
+$('fp-logout').addEventListener('click', () => logout());
+$('forcepw-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const current = $('fp-current').value;
+  const next = $('fp-new').value;
+  const fail = (message) => { $('fp-error').textContent = message; };
+  if (!current) return fail('請輸入目前（臨時）密碼');
+  if (next.length < 8) return fail('新密碼至少要 8 碼');
+  if (next !== $('fp-confirm').value) return fail('兩次輸入的新密碼不一樣');
+  if (next === current) return fail('新密碼不能和臨時密碼一樣');
+  fail('');
+  setBusy($('fp-save'), true, '設定中…');
+  try {
+    await changePassword(current, next);
+  } catch (err) {
+    const wrongPassword = ['auth/invalid-credential', 'auth/wrong-password'].includes(err?.code);
+    fail(wrongPassword ? '目前（臨時）密碼不對' : errorMessage(err));
+    setBusy($('fp-save'), false);
+    return;
+  }
+  try {
+    await markPasswordChanged();
+  } catch (err) {
+    // 密碼已經換好了，只是「要改密碼」沒關掉：下次登入會再問一次，到時「目前密碼」填新密碼
+    fail(`新密碼已設定好，但系統紀錄沒存到（${errorMessage(err)}）。請按重新整理；如果又出現這個畫面，「目前密碼」請填剛設定的新密碼。`);
+    setBusy($('fp-save'), false);
+    return;
+  }
+  toast('密碼已設定，下次請用新密碼登入');
+  if (returnUrl) { location.replace(returnUrl); return; }
+  location.reload();
+});
 
 // ---------- 登入 ----------
 $('login-form').addEventListener('submit', async (event) => {

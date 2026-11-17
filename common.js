@@ -109,6 +109,11 @@ export function requireUser({ adminOnly = false, loginParams = null } = {}) {
           location.replace('index.html?msg=inactive');
           return;
         }
+        // 功能⑰：被要求改密碼的人，先回首頁改密碼才能用其他頁面
+        if (profile.mustChangePassword === true) {
+          location.replace('index.html');
+          return;
+        }
         resolve({ user, profile, forbidden: adminOnly && profile.role !== 'admin' });
       } catch (error) {
         resolve({ user, profile: null, forbidden: false, error });
@@ -124,6 +129,16 @@ export async function changePassword(currentPassword, newPassword) {
   const credential = EmailAuthProvider.credential(user.email, currentPassword);
   await reauthenticateWithCredential(user, credential);
   await updatePassword(user, newPassword);
+}
+
+// 功能⑰：本人改完密碼後，把自己的「要改密碼」關掉
+//   安全規則只允許本人改這一個欄位（加上更新時間、工號），其他欄位都不能動
+export async function markPasswordChanged() {
+  await setDoc(doc(db, 'users', myEmpNo()), {
+    mustChangePassword: false,
+    updatedAt: serverTimestamp(),
+    updatedByEmpNo: myEmpNo()
+  }, { merge: true });
 }
 
 // ---------- 錯誤訊息 ----------

@@ -38,7 +38,7 @@
         <code id="hint-email"></code>
         <button id="hint-copy" class="btn" type="button">複製</button>
       </div>
-      <p class="muted">密碼由你設定，私下交給本人，請他第一次登入後自己修改。</p>
+      <p class="muted">臨時密碼由你設定，私下交給本人。有勾「第一次登入要改密碼」的話，他第一次登入時系統會要他自己設定新密碼。</p>
       <button id="hint-close" class="btn" type="button">知道了</button>
     </div>
 
@@ -68,6 +68,11 @@
       <label class="check">
         <input id="f-active" type="checkbox">
         <span>在職</span>
+      </label>
+      <!-- 功能⑰：第一次登入（或忘記密碼重建帳號後）要先改密碼 -->
+      <label class="check">
+        <input id="f-mustpw" type="checkbox">
+        <span>第一次登入要改密碼（本人改好後會自動取消）</span>
       </label>
       <!-- 既有人員才顯示：忘記密碼時，在主控台刪掉帳號後，用這個帳號重建 -->
       <div id="f-account" hidden>
@@ -160,7 +165,7 @@ function renderList() {
     <li>
       <button type="button" class="ledger-row${u.active === true ? '' : ' is-off'}" data-empno="${escapeHtml(u.empNo)}">
         <span class="col-empno">${escapeHtml(u.empNo)}</span>
-        <span class="col-name">${escapeHtml(u.name)}</span>
+        <span class="col-name">${escapeHtml(u.name)}${u.mustChangePassword === true && u.active === true ? ' <span class="tag tag-off">待改密碼</span>' : ''}</span>
         <span class="col-role">${escapeHtml(ROLE_LABELS[u.role] || u.role)}</span>
         <span class="col-dept">${escapeHtml(deptNames(u.deptIds))}</span>
         <span class="col-state"><span class="tag${u.active === true ? '' : ' tag-off'}">${u.active === true ? '在職' : '停用'}</span></span>
@@ -206,6 +211,7 @@ function openForm(empNo) {
   renderDeptChecks(user ? (user.deptIds || []) : (depts.length === 1 ? [depts[0].id] : []));
   $('f-active').checked = user ? user.active === true : true;
   $('f-active').disabled = isSelf;                    // 不能停用自己
+  $('f-mustpw').checked = user ? user.mustChangePassword === true : true;   // 功能⑰：新增時預設打勾
 
   // 既有人員：顯示登入帳號
   $('f-account').hidden = !user;
@@ -236,6 +242,7 @@ $('user-form').addEventListener('submit', async (event) => {
   const role = roleInputs.find((r) => r.checked)?.value;
   const deptIds = [...$('f-depts').querySelectorAll('input:checked')].map((i) => i.value);
   const active = $('f-active').checked;
+  const mustChangePassword = $('f-mustpw').checked;
   const fail = (message) => { $('f-error').textContent = message; };
 
   // 先在畫面上檢查，安全規則會再檢查一次
@@ -255,6 +262,7 @@ $('user-form').addEventListener('submit', async (event) => {
     }
     await setDoc(ref, {
       empNo, name, role, deptIds, active,
+      mustChangePassword,             // 功能⑰：第一次登入要改密碼
       updatedAt: serverTimestamp(),   // 伺服器時間
       updatedByEmpNo: myEmpNo()       // 誰改的
     });
