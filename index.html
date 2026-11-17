@@ -132,6 +132,8 @@ const MODULES = [
   { label: LEGACY_BOARD_URL ? '設備看板（新版測試中）' : '設備看板',
     desc: LEGACY_BOARD_URL ? '資料不是即時的，不要拿來做報告' : '即時機台狀態',
     href: 'board.html', roles: ALL_ROLES, testing: !!LEGACY_BOARD_URL },
+  // 功能⑮⑯：設備清單（搜尋、篩選、匯出）＋全部機台的異動履歷
+  { label: '設備清單與履歷', desc: '搜尋、篩選、匯出 CSV', href: 'list.html', roles: ALL_ROLES },
   { label: '主檔維護', desc: '設備、樓層', href: 'master.html', roles: ['admin'] },
   { label: '人員管理', desc: '帳號、角色、負責單位', href: 'users.html', roles: ['admin'] }
 ];

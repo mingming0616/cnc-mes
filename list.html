@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1D262D">
+<title>設備清單與履歷｜CNC MES</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=2">
+<style>
+  /* ============================================================
+     功能⑮ 設備清單頁的樣式（只有這頁用，寫在這裡就不用改 style.css 的版本號）
+     ============================================================ */
+  .page-list { max-width: none; padding: 16px 16px 48px; }
+  .ls-conn { margin-left: auto; font-size: 14px; padding: 2px 10px; border: 1px solid rgba(255, 255, 255, .55); border-radius: 4px; white-space: nowrap; }
+  .ls-conn.is-offline { border-style: dashed; color: #FFD7D2; }
+
+  /* 分頁：設備清單／異動履歷 */
+  .ls-tabs { display: flex; gap: 0; margin-bottom: 14px; border-bottom: 2px solid var(--ink); }
+  .ls-tab {
+    min-height: 48px; padding: 0 20px; border: 2px solid transparent; border-bottom: 0;
+    border-radius: 8px 8px 0 0; background: none; font: inherit; font-weight: 600; color: var(--ink-soft); cursor: pointer;
+  }
+  .ls-tab[aria-selected="true"] { background: var(--panel); color: var(--ink); border-color: var(--ink); margin-bottom: -2px; }
+  .ls-tab .soon { margin: 0 0 0 6px; font-weight: 400; }
+
+  /* 篩選列 */
+  .ls-bar { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: end; margin-bottom: 10px; }
+  .ls-bar .field { margin: 0; }
+  .ls-bar .field > span { font-size: 14px; }
+  .ls-search { flex: 1 1 260px; }
+  .ls-bar select { min-width: 130px; }
+  .ls-sum { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .ls-sum-text { font-weight: 600; }
+  .ls-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+  /* 清單表格：手機可以左右滑，設備編號那欄固定在左邊 */
+  .ls-wrap { overflow: auto; max-height: calc(100vh - 250px); max-height: calc(100dvh - 250px); min-height: 300px;
+             background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; }
+  .ls-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 16px; }
+  .ls-table th, .ls-table td { padding: 8px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+  .ls-table thead th {
+    position: sticky; top: 0; z-index: 2; background: var(--sunk); font-size: 14px; color: var(--ink-soft);
+    border-bottom: 2px solid var(--ink);
+  }
+  .ls-table thead th button {
+    border: 0; background: none; padding: 4px 0; font: inherit; font-weight: 600; color: inherit; cursor: pointer;
+    display: inline-flex; gap: 4px; align-items: center;
+  }
+  .ls-table thead th[aria-sort] button { color: var(--ink); }
+  .ls-table .col-id { position: sticky; left: 0; z-index: 1; background: var(--panel);
+                      font-family: var(--font-code); font-size: 19px; font-weight: 700; letter-spacing: .03em; }
+  .ls-table thead .col-id { z-index: 3; background: var(--sunk); font-family: inherit; font-size: 14px; letter-spacing: 0; }
+  .ls-table tbody tr { cursor: pointer; }
+  .ls-table tbody tr:hover td, .ls-table tbody tr:active td { background: var(--sunk); }
+  .ls-table .col-wide { white-space: normal; min-width: 160px; max-width: 280px; }
+  .ls-table .col-num { text-align: right; }
+  .ls-chip {
+    display: inline-block; min-width: 64px; padding: 2px 10px; border-radius: 4px; text-align: center;
+    font-weight: 600; background: var(--c); color: var(--fg);
+  }
+  .ls-chip.is-unset { background: none; color: var(--ink-soft); border: 1px dashed var(--rule-strong); }
+  .ls-empty { padding: 28px 16px; color: var(--ink-soft); text-align: center; }
+  .ls-soon { padding: 40px 16px; text-align: center; color: var(--ink-soft); background: var(--panel); border: 2px dashed var(--rule-strong); border-radius: 8px; }
+
+  @media (max-width: 640px) {
+    .ls-bar select { min-width: 0; width: 100%; }
+    .ls-bar .field { flex: 1 1 calc(50% - 6px); }
+    .ls-bar .ls-search { flex-basis: 100%; }
+    /* 手機畫面窄：類別、廠牌、型號、最後更新先藏起來，狀態才看得到（橫向滑動或用電腦看全部） */
+    .ls-table .sm-hide { display: none; }
+    .ls-wrap { max-height: none; }
+    .ls-tab { padding: 0 14px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="btn ghost" href="index.html">回首頁</a>
+  <span class="topbar-title">設備清單與履歷</span>
+  <span id="conn" class="ls-conn">連線中…</span>
+</header>
+
+<main class="page page-list">
+  <!-- 載入中、讀取錯誤時顯示這裡 -->
+  <div id="state" class="state">載入中…</div>
+
+  <section id="panel" hidden>
+    <div class="ls-tabs" role="tablist">
+      <button type="button" class="ls-tab" role="tab" id="tab-list" aria-selected="true" aria-controls="sec-list">設備清單</button>
+      <button type="button" class="ls-tab" role="tab" id="tab-events" aria-selected="false" aria-controls="sec-events">異動履歷<span class="soon">準備中</span></button>
+    </div>
+
+    <!-- ========== 分頁一：設備清單（功能⑮） ========== -->
+    <section id="sec-list" role="tabpanel" aria-labelledby="tab-list">
+      <div class="ls-bar">
+        <label class="field ls-search"><span>搜尋（設備編號、料號、型號、原因、備註）</span>
+          <input id="q" type="search" placeholder="例：M101、AB-123" autocomplete="off" enterkeyhint="search"></label>
+        <label class="field"><span>單位</span><select id="f-dept"></select></label>
+        <label class="field"><span>樓層</span><select id="f-floor"></select></label>
+        <label class="field"><span>狀態</span><select id="f-status"></select></label>
+        <label class="field"><span>廠牌</span><select id="f-brand"></select></label>
+      </div>
+      <div class="ls-sum">
+        <span id="sum" class="ls-sum-text"></span>
+        <span class="ls-actions">
+          <button id="btn-clear" class="btn" type="button">清除篩選</button>
+          <button id="btn-csv" class="btn primary" type="button" hidden>匯出 CSV</button>
+        </span>
+      </div>
+      <div class="ls-wrap">
+        <table class="ls-table">
+          <thead><tr id="head"></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div id="empty" class="ls-empty" hidden>沒有符合的設備</div>
+      </div>
+      <p class="muted">點一列可以打開那台機的機台頁。點欄位名稱可以排序，再點一次反過來排。狀態會即時更新。</p>
+    </section>
+
+    <!-- ========== 分頁二：異動履歷（功能⑯，下一個做） ========== -->
+    <section id="sec-events" role="tabpanel" aria-labelledby="tab-events" hidden>
+      <div class="ls-soon">全部機台的異動履歷、依日期區間匯出 CSV：準備中（功能⑯）。<br>單台機的履歷可以先從看板或機台頁看。</div>
+    </section>
+  </section>
+</main>
+
+<script type="module">
+// ============================================================
+// list.html：設備清單與履歷
+//   功能⑮ 設備清單：搜尋、篩選（單位、樓層、狀態、廠牌）、排序、匯出 CSV
+//     讀取量：開頁時讀一次單位、樓層、設備（約 210 筆），再監聽全部機台的目前狀態（約 200 筆）；
+//             之後只有變動的那台會再讀 1 次，不定時重抓
+//     誰能用：三種角色都能看；匯出 CSV 只有管理者、維護員（CSV 裡有更新人姓名）
+//   功能⑯ 異動履歷：下一個功能再做
+// ============================================================
+import {
+  db, collection, getDocs, onSnapshot,
+  requireUser, errorMessage, escapeHtml, toast, formatTime, formatDuration, colorStyle, safeColor
+} from './common.js?v=5';
+
+const $ = (id) => document.getElementById(id);
+const FILTER_KEY = 'cncmes-list-filters-v1';    // 這台裝置上次的篩選、排序
+const UNSET = '__unset';                        // 狀態篩選「未設定」
+
+let me = null;               // 登入者的人員資料
+let depts = [];              // 單位（含狀態、原因設定）
+let floors = [];             // 使用中的樓層
+let machines = [];           // 使用中的設備
+const statusMap = new Map(); // 設備編號 → 目前狀態
+
+// 畫面選擇
+const ui = { q: '', dept: '', floor: '', status: '', brand: '', sort: 'default', dir: 1 };
+
+// 表格欄位：key＝排序用的代號；csv＝匯出時的欄名
+const COLUMNS = [
+  { key: 'machineId', label: '設備編號', cls: 'col-id' },
+  { key: 'floor', label: '樓層' },
+  { key: 'category', label: '類別', cls: 'sm-hide' },
+  { key: 'brand', label: '廠牌', cls: 'sm-hide' },
+  { key: 'model', label: '型號', cls: 'sm-hide' },
+  { key: 'status', label: '狀態' },
+  { key: 'reason', label: '原因' },
+  { key: 'duration', label: '持續', cls: 'col-num' },
+  { key: 'partNo', label: '料號' },
+  { key: 'opNo', label: '製程' },
+  { key: 'note', label: '備註', cls: 'col-wide' },
+  { key: 'updated', label: '最後更新', cls: 'sm-hide' }
+];
+
+// ---------- 小工具 ----------
+const naturalCompare = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'zh-Hant', { numeric: true });
+const bySortOrder = (idKey) => (a, b) => (a.sortOrder ?? 9999) - (b.sortOrder ?? 9999) || naturalCompare(a[idKey], b[idKey]);
+const deptOf = (id) => depts.find((d) => d.id === id);
+const floorIndex = (id) => { const i = floors.findIndex((f) => f.floorId === id); return i < 0 ? 999 : i; };
+const floorName = (id) => floors.find((f) => f.floorId === id)?.name || id || '—';
+const store = {
+  get(key) { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } },
+  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* 無痕模式存不了也沒關係 */ } }
+};
+const canExport = () => me.role === 'admin' || me.role === 'maintainer';
+
+// 一台機在清單上的一列（顯示、搜尋、排序、匯出共用）
+function rowOf(m) {
+  const s = statusMap.get(m.machineId) || null;
+  const dept = deptOf(m.deptId);
+  const defs = dept?.statuses || [];
+  const defIndex = s ? defs.findIndex((d) => d.code === s.status) : -1;
+  const def = defIndex >= 0 ? defs[defIndex] : null;
+  const since = s?.statusSince?.toMillis?.() ?? null;
+  const reason = s?.reasonCode
+    ? (dept?.reasons?.[s.status]?.find((r) => r.code === s.reasonCode)?.label || s.reasonCode) : '';
+  return {
+    m, s,
+    machineId: m.machineId,
+    floor: floorName(m.floorId),
+    floorOrder: floorIndex(m.floorId),
+    category: m.category || '',
+    brand: m.brand || '',
+    model: m.model || '',
+    statusCode: s ? s.status : UNSET,
+    statusLabel: s ? (def?.label || s.status) : '未設定',
+    statusOrder: s ? (defIndex >= 0 ? defIndex : 98) : 99,
+    color: safeColor(def?.color),
+    reason,
+    since,
+    duration: since ? Date.now() - since : null,
+    partNo: s?.partNo || '',
+    opNo: s?.opNo || '',
+    note: s?.note || '',
+    updatedBy: s?.updatedByName || '',
+    updatedByEmpNo: s?.updatedByEmpNo || '',
+    updatedAt: s?.updatedAt || null,
+    updatedMs: s?.updatedAt?.toMillis?.() ?? 0
+  };
+}
+
+function setConn(online) {
+  $('conn').textContent = online ? '即時更新中' : '離線：可能不是最新';
+  $('conn').classList.toggle('is-offline', !online);
+}
+
+// ---------- 開始：權限檢查、讀主檔、監聽狀態 ----------
+const ctx = await requireUser();
+if (ctx.error) {
+  $('state').textContent = errorMessage(ctx.error);
+} else {
+  me = ctx.profile;
+  try {
+    await loadMaster();
+    setupFilters();
+    setupTabs();
+    listenStatus();
+    $('state').hidden = true;
+    $('panel').hidden = false;
+  } catch (err) {
+    $('state').textContent = errorMessage(err);
+  }
+}
+
+async function loadMaster() {
+  const [deptSnap, floorSnap, machineSnap] = await Promise.all([
+    getDocs(collection(db, 'departments')),
+    getDocs(collection(db, 'floors')),
+    getDocs(collection(db, 'machines'))
+  ]);
+  depts = deptSnap.docs.map((d) => ({ ...d.data(), id: d.id })).sort(bySortOrder('id'));
+  floors = floorSnap.docs.map((d) => ({ ...d.data(), floorId: d.id }))
+    .filter((f) => f.active === true).sort(bySortOrder('floorId'));
+  machines = machineSnap.docs.map((d) => ({ ...d.data(), machineId: d.id }))
+    .filter((m) => m.active === true);
+}
+
+// 監聽全部機台的目前狀態（跟看板一樣：只有變動的那台會再讀）
+function listenStatus() {
+  onSnapshot(collection(db, 'machineStatus'), { includeMetadataChanges: true }, (snap) => {
+    statusMap.clear();
+    snap.forEach((d) => statusMap.set(d.id, d.data({ serverTimestamps: 'estimate' })));
+    setConn(!snap.metadata.fromCache);
+    render();
+  }, (err) => {
+    setConn(false);
+    toast(errorMessage(err), 'error');
+  });
+  // 持續時間每 60 秒更新一次
+  setInterval(render, 60 * 1000);
+}
+
+// ---------- 分頁 ----------
+function setupTabs() {
+  const show = (which) => {
+    $('tab-list').setAttribute('aria-selected', String(which === 'list'));
+    $('tab-events').setAttribute('aria-selected', String(which === 'events'));
+    $('sec-list').hidden = which !== 'list';
+    $('sec-events').hidden = which !== 'events';
+  };
+  $('tab-list').addEventListener('click', () => show('list'));
+  $('tab-events').addEventListener('click', () => show('events'));
+}
+
+// ---------- 篩選、排序（記住這台裝置上次的選擇） ----------
+function setupFilters() {
+  const opt = (value, label) => `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+  $('f-dept').innerHTML = opt('', '全部單位') + depts.map((d) => opt(d.id, d.name || d.id)).join('');
+  $('f-floor').innerHTML = opt('', '全部樓層') + floors.map((f) => opt(f.floorId, f.name || f.floorId)).join('');
+
+  // 狀態：各單位的狀態合在一起（同代碼只列一次），加「未設定」
+  const seen = new Map();
+  depts.forEach((d) => (d.statuses || []).forEach((s) => { if (!seen.has(s.code)) seen.set(s.code, s.label || s.code); }));
+  $('f-status').innerHTML = opt('', '全部狀態') + [...seen].map(([code, label]) => opt(code, label)).join('') + opt(UNSET, '未設定');
+
+  const brands = [...new Set(machines.map((m) => m.brand).filter(Boolean))].sort(naturalCompare);
+  $('f-brand').innerHTML = opt('', '全部廠牌') + brands.map((b) => opt(b, b)).join('');
+
+  // 上次的選擇（選項已經不在就回到「全部」）
+  const saved = store.get(FILTER_KEY) || {};
+  const pick = (id, value) => {
+    const el = $(id);
+    el.value = value ?? '';
+    if (el.value !== (value ?? '')) el.value = '';
+    return el.value;
+  };
+  ui.dept = pick('f-dept', saved.dept);
+  ui.floor = pick('f-floor', saved.floor);
+  ui.status = pick('f-status', saved.status);
+  ui.brand = pick('f-brand', saved.brand);
+  ui.sort = COLUMNS.some((c) => c.key === saved.sort) ? saved.sort : 'default';
+  ui.dir = saved.dir === -1 ? -1 : 1;
+  // 搜尋文字不記（下次打開從全部開始看比較不會誤會）
+
+  $('btn-csv').hidden = !canExport();
+
+  let typing;
+  $('q').addEventListener('input', () => {
+    clearTimeout(typing);
+    typing = setTimeout(() => { ui.q = $('q').value.trim(); render(); }, 150);
+  });
+  [['f-dept', 'dept'], ['f-floor', 'floor'], ['f-status', 'status'], ['f-brand', 'brand']].forEach(([id, key]) => {
+    $(id).addEventListener('change', () => { ui[key] = $(id).value; saveFilters(); render(); });
+  });
+  $('btn-clear').addEventListener('click', () => {
+    Object.assign(ui, { q: '', dept: '', floor: '', status: '', brand: '', sort: 'default', dir: 1 });
+    ['q', 'f-dept', 'f-floor', 'f-status', 'f-brand'].forEach((id) => { $(id).value = ''; });
+    saveFilters();
+    render();
+  });
+  $('head').addEventListener('click', (event) => {
+    const button = event.target.closest('[data-sort]');
+    if (!button) return;
+    const key = button.dataset.sort;
+    if (ui.sort === key) ui.dir = -ui.dir; else { ui.sort = key; ui.dir = 1; }
+    saveFilters();
+    render();
+  });
+  $('rows').addEventListener('click', (event) => {
+    const tr = event.target.closest('tr[data-id]');
+    if (tr) location.href = `machine.html?machineId=${encodeURIComponent(tr.dataset.id)}`;
+  });
+  $('btn-csv').addEventListener('click', exportCsv);
+}
+
+function saveFilters() {
+  store.set(FILTER_KEY, { dept: ui.dept, floor: ui.floor, status: ui.status, brand: ui.brand, sort: ui.sort, dir: ui.dir });
+}
+
+// 篩選＋排序後的清單
+function visibleRows() {
+  const q = ui.q.toLowerCase();
+  const rows = machines.map(rowOf).filter((r) => (
+    (!ui.dept || r.m.deptId === ui.dept)
+    && (!ui.floor || r.m.floorId === ui.floor)
+    && (!ui.status || r.statusCode === ui.status)
+    && (!ui.brand || r.brand === ui.brand)
+    && (!q || [r.machineId, r.partNo, r.opNo, r.model, r.brand, r.reason, r.note, r.statusLabel]
+      .some((v) => String(v).toLowerCase().includes(q)))
+  ));
+  // 預設：照樓層順序，再照主檔的排列順序（跟看板一樣）
+  const byDefault = (a, b) => a.floorOrder - b.floorOrder
+    || (a.m.sortOrder ?? 9999) - (b.m.sortOrder ?? 9999) || naturalCompare(a.machineId, b.machineId);
+  const compare = {
+    default: () => 0,
+    machineId: (a, b) => naturalCompare(a.machineId, b.machineId),
+    floor: (a, b) => a.floorOrder - b.floorOrder,
+    status: (a, b) => a.statusOrder - b.statusOrder,
+    duration: (a, b) => (a.duration ?? 0) - (b.duration ?? 0),
+    updated: (a, b) => a.updatedMs - b.updatedMs
+  }[ui.sort] || ((a, b) => naturalCompare(a[ui.sort], b[ui.sort]));
+  // 依持續時間、最後更新排序時，「未設定」（沒有時間）不管正排反排都放最後
+  const noTime = (r) => (ui.sort === 'duration' && r.duration === null) || (ui.sort === 'updated' && !r.updatedMs);
+  return rows.sort((a, b) => (noTime(a) - noTime(b)) || (compare(a, b) * ui.dir) || byDefault(a, b));
+}
+
+// ---------- 畫面 ----------
+function render() {
+  if (!me) return;
+  // 表頭（目前排序的那欄加箭頭）
+  $('head').innerHTML = COLUMNS.map((c) => {
+    const on = ui.sort === c.key;
+    const arrow = on ? (ui.dir === 1 ? '▲' : '▼') : '';
+    return `<th class="${c.cls || ''}"${on ? ` aria-sort="${ui.dir === 1 ? 'ascending' : 'descending'}"` : ''}>`
+      + `<button type="button" data-sort="${c.key}">${c.label}<span aria-hidden="true">${arrow}</span></button></th>`;
+  }).join('');
+
+  const rows = visibleRows();
+  $('rows').innerHTML = rows.map((r) => (
+    `<tr data-id="${escapeHtml(r.machineId)}">`
+    + `<td class="col-id">${escapeHtml(r.machineId)}</td>`
+    + `<td>${escapeHtml(r.floor)}</td>`
+    + `<td class="sm-hide">${escapeHtml(r.category)}</td>`
+    + `<td class="sm-hide">${escapeHtml(r.brand)}</td>`
+    + `<td class="sm-hide">${escapeHtml(r.model)}</td>`
+    + (r.s
+      ? `<td><span class="ls-chip" style="${colorStyle(r.color)}">${escapeHtml(r.statusLabel)}</span></td>`
+      : '<td><span class="ls-chip is-unset">未設定</span></td>')
+    + `<td>${escapeHtml(r.reason)}</td>`
+    + `<td class="col-num">${r.duration === null ? '' : escapeHtml(formatDuration(r.duration))}</td>`
+    + `<td>${escapeHtml(r.partNo)}</td>`
+    + `<td>${escapeHtml(r.opNo)}</td>`
+    + `<td class="col-wide">${escapeHtml(r.note)}</td>`
+    + `<td class="sm-hide">${r.updatedAt ? `${escapeHtml(formatTime(r.updatedAt))} ${escapeHtml(r.updatedBy)}` : ''}</td>`
+    + '</tr>'
+  )).join('');
+  $('empty').hidden = rows.length > 0;
+
+  // 合計：共幾台，各狀態幾台
+  const counts = new Map();
+  rows.forEach((r) => counts.set(r.statusLabel, (counts.get(r.statusLabel) || 0) + 1));
+  const detail = [...counts].map(([label, n]) => `${label} ${n}`).join('、');
+  $('sum').textContent = `共 ${rows.length} 台${rows.length < machines.length ? `（全部 ${machines.length} 台）` : ''}${detail ? `：${detail}` : ''}`;
+}
+
+// ---------- 匯出 CSV（照目前的篩選、排序；Excel 打開不會亂碼） ----------
+function csvCell(value) {
+  let text = String(value ?? '');
+  // 開頭是 = + - @ 的文字，Excel 會當成公式執行：前面加 ' 擋掉
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function stamp() {
+  const p = {};
+  new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Taipei', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23'
+  }).formatToParts(new Date()).forEach((x) => { p[x.type] = x.value; });
+  return `${p.year}${p.month}${p.day}_${p.hour}${p.minute}`;
+}
+
+function exportCsv() {
+  if (!canExport()) return;
+  const rows = visibleRows();
+  if (!rows.length) { toast('沒有資料可以匯出', 'error'); return; }
+  const head = ['設備編號', '單位', '樓層', '設備類別', '廠牌', '型號', '狀態', '原因', '狀態開始時間', '持續(分鐘)',
+    '料號', '製程', '備註', '更新時間', '更新人', '更新人工號'];
+  const lines = [head, ...rows.map((r) => [
+    r.machineId, deptOf(r.m.deptId)?.name || r.m.deptId, r.floor, r.category, r.brand, r.model,
+    r.statusLabel, r.reason,
+    r.since ? formatTime({ toDate: () => new Date(r.since) }) : '',
+    r.duration === null ? '' : Math.floor(r.duration / 60000),
+    r.partNo, r.opNo, r.note,
+    r.updatedAt ? formatTime(r.updatedAt) : '', r.updatedBy, r.updatedByEmpNo
+  ])].map((cols) => cols.map(csvCell).join(','));
+  // 開頭加 BOM（﻿），Windows 的 Excel 才會用 UTF-8 讀，中文不會亂碼
+  const blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `設備清單_${stamp()}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  toast(`已匯出 ${rows.length} 台`);
+}
+</script>
+</body>
+</html>
