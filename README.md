@@ -17,6 +17,7 @@ CNC 精密零件代工廠銑床課自建的工廠製造管理執行系統（MES�
 | `board.html` | 設備看板（深色＋平面圖） |
 | `machine.html` | 機台頁（掃 QR 進入） |
 | `labels.html` | QR 標籤列印 |
+| `list.html` | 設備清單與履歷（搜尋、篩選、匯出 CSV） |
 | `status-panel.js` | 切換狀態面板（看板、機台頁共用） |
 | `history.js` | 異動履歷＋修正紀錄 |
 | `floorplan.js` | 平面圖（看板、主檔共用） |
