@@ -47,6 +47,29 @@
 .pl-map { margin: 0 0 12px; }
 .pl-map .fp-wrap { max-height: 70vh; }
 .pl-map-note { margin: 0 0 6px; }
+/* 功能⑱「狀態與原因」的樣式：只有這頁用 */
+.rs-dept { max-width: 360px; }
+.rs-card { padding: 14px 16px; }
+.rs-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 14px; margin: 0 0 8px; }
+.rs-chip { display: inline-block; min-width: 72px; padding: 2px 10px; border-radius: 4px; text-align: center; font-weight: 700; background: var(--c); color: var(--fg); }
+.rs-need { color: var(--ink-soft); font-size: 15px; }
+.rs-head .check { margin-left: auto; }
+.rs-list { list-style: none; margin: 0 0 10px; padding: 0; }
+.rs-row { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; padding: 6px 0; border-top: 1px solid var(--rule); }
+.rs-row input[type="text"] { flex: 1 1 200px; min-height: 44px; padding: 0 10px; border: 2px solid var(--rule-strong); border-radius: var(--radius); font: inherit; }
+.rs-row.is-off input[type="text"] { color: var(--ink-soft); border-style: dashed; }
+.rs-row.is-changed input[type="text"] { border-color: var(--ink); background: #FFF8E1; }
+.rs-row .btn { min-height: 44px; padding: 0 12px; }
+.rs-code { font-family: var(--font-code); font-size: 14px; color: var(--ink-soft); min-width: 4.5em; }
+.rs-add { display: flex; flex-wrap: wrap; gap: 8px; }
+.rs-add input { flex: 1 1 200px; min-height: 44px; padding: 0 10px; border: 2px solid var(--rule-strong); border-radius: var(--radius); font: inherit; }
+.rs-bar {
+  position: sticky; bottom: 0; z-index: 5; display: flex; flex-wrap: wrap; align-items: center; gap: 10px;
+  margin: 0 -16px; padding: 12px 16px; background: var(--panel); border-top: 2px solid var(--ink);
+}
+.rs-bar .rs-dirty { flex: 1 1 200px; font-weight: 600; }
+.rs-diff { margin: 0 0 12px; padding-left: 20px; max-height: 50vh; overflow-y: auto; }
+@media (max-width: 640px) { .tabs { grid-template-columns: repeat(3, 1fr); } .tabs button { padding: 0 8px; } }
 </style>
 </head>
 <body>
@@ -65,6 +88,7 @@
     <div class="tabs" role="tablist" aria-label="主檔種類">
       <button id="tab-machines" type="button" role="tab" aria-selected="true" aria-controls="pane-machines">設備</button>
       <button id="tab-floors" type="button" role="tab" aria-selected="false" aria-controls="pane-floors">樓層</button>
+      <button id="tab-reasons" type="button" role="tab" aria-selected="false" aria-controls="pane-reasons">狀態與原因</button>
     </div>
 
     <!-- ==================== 設備分頁 ==================== -->
@@ -248,8 +272,35 @@
 
       <ul id="floor-list" class="ledger ledger-floors" aria-label="樓層清單"></ul>
     </div>
+
+    <!-- ========== 功能⑱：狀態與原因（原因清單編輯、跳出提醒開關） ========== -->
+    <div id="pane-reasons" role="tabpanel" aria-labelledby="tab-reasons" hidden>
+      <p class="muted">切換狀態時可以選的原因。改名只用來修錯字（舊紀錄也會顯示新名字）；意思不一樣的請「新增」，再把舊的「停用」。
+        改完按最下面的「儲存」。已經開著的看板、機台頁要重新整理才會看到。</p>
+      <label class="field rs-dept"><span>單位</span><select id="rs-dept"></select></label>
+      <div id="rs-list"></div>
+      <div class="rs-bar">
+        <span id="rs-dirty" class="rs-dirty muted">沒有修改</span>
+        <button id="rs-reset" class="btn" type="button">還原</button>
+        <button id="rs-save" class="btn primary" type="button">儲存</button>
+      </div>
+      <p id="rs-error" class="form-error" role="alert"></p>
+    </div>
   </section>
 </main>
+
+<!-- 功能⑱：儲存原因清單前的確認視窗 -->
+<dialog id="dlg-rs">
+  <div class="dialog-body">
+    <h2>確定儲存這些修改？</h2>
+    <ul id="rs-diff" class="rs-diff"></ul>
+    <p id="rs-dlg-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="rs-dlg-cancel" class="btn" type="button">再看看</button>
+      <button id="rs-dlg-ok" class="btn primary" type="button">確定儲存</button>
+    </div>
+  </div>
+</dialog>
 
 <script type="module">
 // ============================================================
@@ -265,7 +316,8 @@
 import {
   db, collection, getDocs, getDocsFromServer, doc, getDoc, setDoc, serverTimestamp,
   requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime,
-  writeBatch, Timestamp, prodDateAndShift, formatDuration   // 功能⑪匯入 v3.3 狀態用（common.js 本來就有，不用改）
+  writeBatch, Timestamp, prodDateAndShift, formatDuration,  // 功能⑪匯入 v3.3 狀態用（common.js 本來就有，不用改）
+  getDocFromServer, colorStyle                               // 功能⑱：存原因前跟資料庫確認最新內容、狀態顏色
 } from './common.js';
 // floorplan.js 改版時，把下面網址的 v 數字加 1（跟 board.html 一樣）
 import { parsePlanFile, planToText, byteLength, createPlanView, PLAN_TEXT_MAX, PLAN_BYTES_MAX } from './floorplan.js?v=2';
@@ -282,6 +334,11 @@ let depts = [];             // 全部單位（依排序）
 let editingMachine = null;  // 正在編輯的設備編號；null＝新增
 let editingFloor = null;    // 正在編輯的樓層代號；null＝新增
 let lastNew = null;         // 上一台新增的設備：連續新增同型機台時，先帶入類別、廠牌、型號
+// 功能⑱ 狀態與原因（放在「開始」之前，開始程式會用到）
+let rsDeptId = '';          // 正在編輯的單位
+let rsBase = null;          // 讀到的原本設定：{ reasons, alerts, updatedMs }
+const NEED_TEXT = { required: '原因必選', optional: '原因選填', none: '不用選原因' };
+let rsDraft = null;         // 畫面上改到一半的：{ reasons: { 狀態: [{ code, label, active }] }, alerts: { 狀態: true/false } }
 
 // ---------- 小工具 ----------
 const normalizeCode = (value) => String(value ?? '').trim().toUpperCase();
@@ -349,19 +406,20 @@ async function loadAll() {
   renderDatalists();
   renderMachines();
   renderFloors();
+  renderReasonTab();
   $('seed-card').hidden = machines.length > 0;
 }
 
 // ---------- 分頁切換 ----------
 function showTab(name) {
-  const onMachines = name === 'machines';
-  $('tab-machines').setAttribute('aria-selected', String(onMachines));
-  $('tab-floors').setAttribute('aria-selected', String(!onMachines));
-  $('pane-machines').hidden = !onMachines;
-  $('pane-floors').hidden = onMachines;
+  ['machines', 'floors', 'reasons'].forEach((key) => {
+    $(`tab-${key}`).setAttribute('aria-selected', String(key === name));
+    $(`pane-${key}`).hidden = key !== name;
+  });
 }
 $('tab-machines').addEventListener('click', () => showTab('machines'));
 $('tab-floors').addEventListener('click', () => showTab('floors'));
+$('tab-reasons').addEventListener('click', () => showTab('reasons'));
 
 // ==================== 設備 ====================
 
@@ -1811,6 +1869,248 @@ $('pl-run').addEventListener('click', async () => {
     renderPlanPreview();
     loadPlanCurrent();
   }
+});
+// ============================================================
+// 功能⑱：狀態與原因（原因清單編輯＋每種狀態要不要跳出提醒）
+//   ‧原因可以新增、改名、停用／重新使用、上移下移；不能刪除（舊紀錄要看得懂）
+//   ‧英文代碼自動產生（c01、c02…），建立後不變；改名＝舊紀錄也顯示新名字
+//   ‧「不用選原因」的狀態不開放加原因；「必選」的至少要留一個使用中的原因
+//   ‧每種狀態的「跳出提醒」開關（功能⑭ 看板提醒卡片看這個）
+//   ‧9 種狀態本身、顏色、必選／選填／不用 先不開放（改了要動安全規則或影響現場判讀）
+//   寫入：departments/{單位} 一筆（存之前先跟資料庫確認沒有別人剛改過）；不改資料結構、不改安全規則
+// ============================================================
+// （下面都用 function：開始程式讀完資料就會呼叫，const 的話那時還沒準備好）
+function deepCopy(value) { return JSON.parse(JSON.stringify(value ?? null)); }
+
+function renderReasonTab() {
+  if (!depts.length) { $('rs-list').innerHTML = '<p class="empty">還沒有單位（先到首頁按「建立預設資料」）</p>'; return; }
+  fillOptions($('rs-dept'), depts, (d) => d.id, (d) => d.name || d.id, rsDeptId || depts[0].id);
+  loadReasonDraft($('rs-dept').value);
+}
+
+function loadReasonDraft(deptId) {
+  const dept = depts.find((d) => d.id === deptId);
+  rsDeptId = deptId;
+  const alerts = {};
+  (dept?.statuses || []).forEach((st) => { alerts[st.code] = st.alert === true; });
+  rsBase = { reasons: deepCopy(dept?.reasons || {}), alerts, updatedMs: dept?.updatedAt?.toMillis?.() ?? 0 };
+  rsDraft = { reasons: deepCopy(rsBase.reasons), alerts: { ...alerts } };
+  $('rs-error').textContent = '';
+  renderReasons();
+}
+
+function rsDept() { return depts.find((d) => d.id === rsDeptId); }
+function baseReason(status, code) { return (rsBase.reasons[status] || []).find((r) => r.code === code); }
+
+function renderReasons() {
+  const dept = rsDept();
+  $('rs-list').innerHTML = (dept?.statuses || []).map((st) => {
+    const list = rsDraft.reasons[st.code] || [];
+    const need = st.needsReason || 'none';
+    const rows = list.map((r, i) => {
+      const base = baseReason(st.code, r.code);
+      const changed = !base || base.label !== r.label || (base.active !== false) !== (r.active !== false);
+      const off = r.active === false;
+      return `<li class="rs-row${off ? ' is-off' : ''}${changed ? ' is-changed' : ''}" data-status="${escapeHtml(st.code)}" data-i="${i}">`
+        + `<input type="text" maxlength="20" value="${escapeHtml(r.label)}" aria-label="原因名稱" data-act="label">`
+        + `<span class="rs-code">${escapeHtml(r.code)}${base ? '' : '（新）'}</span>`
+        + `<span class="tag${off ? ' tag-off' : ''}">${off ? '停用' : '使用中'}</span>`
+        + `<button type="button" class="btn" data-act="up" aria-label="上移"${i === 0 ? ' disabled' : ''}>↑</button>`
+        + `<button type="button" class="btn" data-act="down" aria-label="下移"${i === list.length - 1 ? ' disabled' : ''}>↓</button>`
+        + `<button type="button" class="btn" data-act="toggle">${off ? '重新使用' : '停用'}</button>`
+        + '</li>';
+    }).join('');
+    const body = need === 'none' && !list.length
+      ? '<p class="muted">這個狀態不用選原因。</p>'
+      : `<ul class="rs-list">${rows || '<li class="muted">還沒有原因</li>'}</ul>`
+        + `<div class="rs-add"><input type="text" maxlength="20" placeholder="新原因名稱（1～20 字）" data-add="${escapeHtml(st.code)}" aria-label="新原因名稱">`
+        + `<button type="button" class="btn" data-act="add" data-status="${escapeHtml(st.code)}">新增原因</button></div>`;
+    return `<section class="sheet rs-card">`
+      + `<div class="rs-head"><span class="rs-chip" style="${colorStyle(st.color)}">${escapeHtml(st.label || st.code)}</span>`
+      + `<span class="rs-need">${NEED_TEXT[need] || need}</span>`
+      + `<label class="check"><input type="checkbox" data-alert="${escapeHtml(st.code)}"${rsDraft.alerts[st.code] ? ' checked' : ''}><span>跳出提醒</span></label></div>`
+      + body + '</section>';
+  }).join('');
+  renderReasonDirty();
+}
+
+// 改了什麼（確認視窗、還原按鈕用）
+function reasonDiff() {
+  const dept = rsDept();
+  const out = [];
+  (dept?.statuses || []).forEach((st) => {
+    const name = st.label || st.code;
+    const before = rsBase.reasons[st.code] || [];
+    const after = rsDraft.reasons[st.code] || [];
+    after.forEach((r) => {
+      const b = before.find((x) => x.code === r.code);
+      if (!b) out.push(`${name}：新增「${r.label}」${r.active === false ? '（停用）' : ''}`);
+      else {
+        if (b.label !== r.label) out.push(`${name}：改名「${b.label}」→「${r.label}」（舊紀錄也會顯示新名字）`);
+        if ((b.active !== false) !== (r.active !== false)) out.push(`${name}：${r.active === false ? '停用' : '重新使用'}「${r.label}」`);
+      }
+    });
+    const orderBefore = before.map((r) => r.code).filter((c) => after.some((r) => r.code === c)).join();
+    const orderAfter = after.map((r) => r.code).filter((c) => before.some((r) => r.code === c)).join();
+    if (orderBefore !== orderAfter) out.push(`${name}：調整原因順序`);
+    if ((rsBase.alerts[st.code] === true) !== (rsDraft.alerts[st.code] === true)) {
+      out.push(`${name}：${rsDraft.alerts[st.code] ? '改成「跳出提醒」' : '取消「跳出提醒」'}`);
+    }
+  });
+  return out;
+}
+
+function renderReasonDirty() {
+  const n = reasonDiff().length;
+  $('rs-dirty').textContent = n ? `改了 ${n} 項，還沒儲存` : '沒有修改';
+  $('rs-dirty').classList.toggle('muted', !n);
+  $('rs-reset').disabled = !n;
+  $('rs-save').disabled = !n;
+}
+
+// 檢查：名稱 1～20 字、同一個狀態不重名、「必選」至少留一個使用中
+function reasonErrors() {
+  const errors = [];
+  (rsDept()?.statuses || []).forEach((st) => {
+    const list = rsDraft.reasons[st.code] || [];
+    const name = st.label || st.code;
+    const seen = new Set();
+    list.forEach((r) => {
+      const label = r.label.trim();
+      if (label.length < 1 || label.length > 20) errors.push(`${name}：原因名稱要 1～20 字`);
+      if (seen.has(label)) errors.push(`${name}：「${label}」重複了`);
+      seen.add(label);
+    });
+    if (st.needsReason === 'required' && list.length && !list.some((r) => r.active !== false)) {
+      errors.push(`${name}：原因必選，至少要留一個使用中的原因`);
+    }
+  });
+  return [...new Set(errors)];
+}
+
+// 新代碼：c01、c02…（同一個狀態裡不重複）
+function nextReasonCode(status) {
+  const used = new Set([...(rsBase.reasons[status] || []), ...(rsDraft.reasons[status] || [])].map((r) => r.code));
+  for (let n = 1; n < 1000; n += 1) {
+    const code = `c${String(n).padStart(2, '0')}`;
+    if (!used.has(code)) return code;
+  }
+  return `c${Date.now()}`;
+}
+
+$('rs-dept').addEventListener('change', () => {
+  if (reasonDiff().length && !window.confirm('這個單位還有沒儲存的修改，換單位會放棄這些修改。要換嗎？')) {
+    $('rs-dept').value = rsDeptId;
+    return;
+  }
+  loadReasonDraft($('rs-dept').value);
+});
+
+$('rs-list').addEventListener('input', (event) => {
+  const input = event.target.closest('input[data-act="label"]');
+  if (!input) return;
+  const row = input.closest('.rs-row');
+  const item = rsDraft.reasons[row.dataset.status][Number(row.dataset.i)];
+  item.label = input.value.trim();
+  const base = baseReason(row.dataset.status, item.code);
+  row.classList.toggle('is-changed', !base || base.label !== item.label || (base.active !== false) !== (item.active !== false));
+  renderReasonDirty();
+});
+
+$('rs-list').addEventListener('change', (event) => {
+  const box = event.target.closest('input[data-alert]');
+  if (!box) return;
+  rsDraft.alerts[box.dataset.alert] = box.checked;
+  renderReasonDirty();
+});
+
+$('rs-list').addEventListener('keydown', (event) => {
+  if (event.key === 'Enter' && event.target.matches('input[data-add]')) {
+    event.preventDefault();
+    addReason(event.target.dataset.add);
+  }
+});
+
+$('rs-list').addEventListener('click', (event) => {
+  const button = event.target.closest('button[data-act]');
+  if (!button) return;
+  $('rs-error').textContent = '';
+  if (button.dataset.act === 'add') { addReason(button.dataset.status); return; }
+  const row = button.closest('.rs-row');
+  const list = rsDraft.reasons[row.dataset.status];
+  const i = Number(row.dataset.i);
+  if (button.dataset.act === 'toggle') list[i].active = list[i].active === false;
+  if (button.dataset.act === 'up' && i > 0) [list[i - 1], list[i]] = [list[i], list[i - 1]];
+  if (button.dataset.act === 'down' && i < list.length - 1) [list[i + 1], list[i]] = [list[i], list[i + 1]];
+  renderReasons();
+});
+
+function addReason(status) {
+  const input = $('rs-list').querySelector(`input[data-add="${CSS.escape(status)}"]`);
+  const label = input.value.trim();
+  if (!label) { $('rs-error').textContent = '請先輸入新原因的名稱'; input.focus(); return; }
+  if (label.length > 20) { $('rs-error').textContent = '原因名稱最多 20 字'; return; }
+  const list = rsDraft.reasons[status] || (rsDraft.reasons[status] = []);
+  if (list.some((r) => r.label === label)) { $('rs-error').textContent = `「${label}」已經有了（停用的也算）`; return; }
+  list.push({ code: nextReasonCode(status), label, active: true });
+  renderReasons();
+  $('rs-list').querySelector(`input[data-add="${CSS.escape(status)}"]`)?.focus();
+}
+
+$('rs-reset').addEventListener('click', () => {
+  rsDraft = { reasons: deepCopy(rsBase.reasons), alerts: { ...rsBase.alerts } };
+  $('rs-error').textContent = '';
+  renderReasons();
+});
+
+$('rs-save').addEventListener('click', () => {
+  const errors = reasonErrors();
+  if (errors.length) { $('rs-error').textContent = errors.join('；'); return; }
+  const diff = reasonDiff();
+  if (!diff.length) return;
+  $('rs-diff').innerHTML = diff.map((line) => `<li>${escapeHtml(line)}</li>`).join('');
+  $('rs-dlg-error').textContent = '';
+  $('dlg-rs').showModal();
+});
+$('rs-dlg-cancel').addEventListener('click', () => $('dlg-rs').close());
+
+$('rs-dlg-ok').addEventListener('click', async () => {
+  const button = $('rs-dlg-ok');
+  setBusy(button, true, '儲存中…');
+  try {
+    const ref = doc(db, 'departments', rsDeptId);
+    // 存之前跟資料庫要最新的：有人剛改過就不蓋掉
+    const fresh = await getDocFromServer(ref);
+    if (!fresh.exists()) throw new Error('找不到這個單位');
+    const freshMs = fresh.data().updatedAt?.toMillis?.() ?? 0;
+    if (freshMs !== rsBase.updatedMs) {
+      $('rs-dlg-error').textContent = '別人剛改過這個單位的設定。請按「再看看」，重新整理頁面後再改一次（避免蓋掉對方的修改）。';
+      return;
+    }
+    const reasons = {};
+    Object.entries(rsDraft.reasons).forEach(([status, list]) => {
+      reasons[status] = list.map((r) => ({ code: r.code, label: r.label.trim(), active: r.active !== false }));
+    });
+    const statuses = (fresh.data().statuses || []).map((st) => (
+      st.code in rsDraft.alerts ? { ...st, alert: rsDraft.alerts[st.code] === true } : st));
+    await setDoc(ref, { reasons, statuses, ...stamp() }, { merge: true });
+    // 重新讀這筆（拿伺服器時間），當作新的原本設定
+    const saved = await getDocFromServer(ref);
+    const index = depts.findIndex((d) => d.id === rsDeptId);
+    if (index >= 0) depts[index] = { ...saved.data(), id: rsDeptId };
+    $('dlg-rs').close();
+    loadReasonDraft(rsDeptId);
+    toast('已儲存。看板、機台頁重新整理後就會用新的原因');
+  } catch (err) {
+    $('rs-dlg-error').textContent = err.code ? errorMessage(err) : (err.message || String(err));
+  } finally {
+    setBusy(button, false);
+  }
+});
+
+// 有沒儲存的修改就離開頁面時，瀏覽器會先問
+window.addEventListener('beforeunload', (event) => {
+  if (rsDraft && reasonDiff().length) { event.preventDefault(); event.returnValue = ''; }
 });
 </script>
 </body>
