@@ -157,6 +157,8 @@ const MODULES = [
   { label: '報修單', desc: '報修、接單、維修完成、驗收', href: 'repairs.html', roles: ALL_ROLES, gate: 'repair' },
   // 功能㉓：備品清單（不會改機台狀態，不用等切換上線）
   { label: '備品清單', desc: '查位置、領用、入庫、盤點', href: 'spares.html', roles: ALL_ROLES },
+  // 功能㉕：保養範本（測試中：只有管理者看得到；點檢之後再做，現場照舊紙本）
+  { label: '保養範本', desc: '日保養、月季年保養表（點檢還沒做）', href: 'pm.html', roles: ['admin'], testing: true },
   { label: '主檔維護', desc: '設備、樓層', href: 'master.html', roles: ['admin'] },
   { label: '人員管理', desc: '帳號、角色、負責單位', href: 'users.html', roles: ['admin'] }
 ];

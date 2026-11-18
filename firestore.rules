@@ -2,7 +2,7 @@ rules_version = '2';
 
 // ============================================================
 // CNC MES 安全規則（功能①登入＋人員、②主檔維護、③設備看板、④異動履歷、⑤修正紀錄、⑧平面圖、⑩借出狀態、
-//                    ⑪匯入 v3.3 狀態、⑰第一次登入強制改密碼、㉑報修流程、㉓備品清單）
+//                    ⑪匯入 v3.3 狀態、⑰第一次登入強制改密碼、㉑報修流程、㉓備品清單、㉕保養範本）
 // 發布方式：Firebase 主控台 → Firestore →「规则」→ 全部取代貼上 →「发布」
 // 重點：沒登入、沒有人員資料、或已停用 → 什麼都不能讀寫
 // 前提：Authentication 已關閉自行註冊，帳號只能在主控台建立
@@ -867,6 +867,42 @@ service cloud.firestore {
     match /spareCosts/{spareNo} {
       allow read: if canSeeCost();
       allow create, update: if isAdmin() && validSpareCost(spareNo);
+      allow delete: if false;
+    }
+
+    // ---------- 保養範本 pmTemplates/{範本代號}（功能㉕） ----------
+    //   一張紙本保養表＝一筆：日保養 daily、月季年 periodic；項目放在 items 陣列（每項的欄位由畫面檢查）
+    //   只有管理者能寫；每次修改 version 一定要 +1（兩個人同時改，後存的會被擋下來）；不能刪除
+
+    function pmTemplateKeys() {
+      return ['templateId', 'name', 'kind', 'deptId', 'fitKeys', 'items', 'notes', 'version', 'active',
+              'updatedAt', 'updatedByEmpNo'];
+    }
+
+    function validPmTemplate(templateId) {
+      let d = request.resource.data;
+      return d.keys().hasOnly(pmTemplateKeys()) && d.keys().hasAll(pmTemplateKeys())
+        && templateId.matches('^[A-Z0-9][A-Z0-9-]{1,19}$')
+        && d.templateId == templateId
+        && textOk(d.name, 1, 40)
+        && d.kind in ['daily', 'periodic']
+        && textOk(d.deptId, 1, 30)
+        && exists(/databases/$(database)/documents/departments/$(d.deptId))
+        && d.fitKeys is list && d.fitKeys.size() >= 1 && d.fitKeys.size() <= 40
+        && d.items is list && d.items.size() <= 80
+        && textOk(d.notes, 0, 3000)
+        && d.version is int
+        && d.active is bool
+        && stamped();
+    }
+
+    match /pmTemplates/{templateId} {
+      allow read: if isActive();
+      allow create: if isAdmin() && validPmTemplate(templateId) && request.resource.data.version == 1;
+      // 種類建立後不能改（之後的保養紀錄依種類分）
+      allow update: if isAdmin() && validPmTemplate(templateId)
+                    && request.resource.data.version == resource.data.version + 1
+                    && request.resource.data.kind == resource.data.kind;
       allow delete: if false;
     }
 

@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1D262D">
+<title>保養範本｜CNC MES</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=2">
+<style>
+  /* ============================================================
+     功能㉕ 保養範本頁的樣式（只有這頁用，寫在這裡就不用改 style.css 的版本號）
+     ============================================================ */
+  .page-pm { max-width: 1280px; padding: 16px 16px 48px; }
+  .pm-flag { display: inline-block; margin-left: 8px; padding: 0 8px; border: 1px dashed currentColor; border-radius: 4px; font-size: 13px; font-weight: 600; }
+  .pm-tabs { display: flex; gap: 0; margin-bottom: 14px; border-bottom: 2px solid var(--ink); overflow-x: auto; }
+  .pm-tab { min-height: 48px; padding: 0 20px; border: 2px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0;
+    background: none; font: inherit; font-weight: 600; color: var(--ink-soft); cursor: pointer; white-space: nowrap; }
+  .pm-tab[aria-selected="true"] { background: var(--panel); color: var(--ink); border-color: var(--ink); margin-bottom: -2px; }
+  .pm-tab .n { display: inline-block; min-width: 24px; margin-left: 4px; padding: 0 6px; border-radius: 12px; background: #D93025; color: #fff; font-size: 15px; }
+  .pm-bar { display: flex; flex-wrap: wrap; gap: 8px 14px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .pm-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .pm-group { margin: 14px 0 6px; font-size: 17px; }
+  .pm-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 10px; }
+  .pm-card { display: flex; flex-direction: column; justify-content: flex-start; gap: 2px; text-align: left; background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; padding: 10px 14px; font: inherit; color: var(--ink); cursor: pointer; }
+  .pm-card:hover { background: var(--sunk); }
+  .pm-card.is-off { border-style: dashed; color: var(--ink-soft); }
+  .pm-card b { display: block; font-size: 18px; }
+  .pm-card .id { font-family: var(--font-code); font-size: 15px; color: var(--ink-soft); }
+  .pm-card .fit { font-size: 14px; color: var(--ink-soft); margin-top: 4px; }
+  .pm-box { background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; }
+  .pm-head h2 { margin: 0; font-size: 22px; }
+  .pm-meta { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; font-size: 16px; }
+  .pm-meta dt { color: var(--ink-soft); }
+  .pm-meta dd { margin: 0; }
+  .pm-wrap { overflow: auto; background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; }
+  .pm-table { width: 100%; border-collapse: collapse; font-size: 16px; }
+  .pm-table th, .pm-table td { padding: 8px 10px; text-align: left; vertical-align: top; border-bottom: 1px solid var(--rule); }
+  .pm-table th { background: var(--sunk); font-size: 14px; color: var(--ink-soft); white-space: nowrap; }
+  .pm-table td.nw { white-space: nowrap; }
+  .pm-table tr.is-off td { color: var(--ink-soft); text-decoration: line-through; }
+  .pm-table tr.is-off td.ops { text-decoration: none; }
+  .pm-table tr.is-bad td { background: #FDECEA; }
+  .pm-table tr.is-warn td { background: #FFF8E1; }
+  .pm-th { display: block; font-size: 14px; color: var(--ink-soft); margin-top: 2px; }
+  .pm-ops { display: flex; gap: 4px; }
+  .pm-ops .btn { min-height: 40px; padding: 0 10px; }
+  .pm-notes { white-space: pre-wrap; font-size: 14px; color: var(--ink-soft); margin: 10px 0 0; }
+  .pm-err { margin: 0 0 12px; padding: 12px 16px; background: #FDECEA; border: 2px solid var(--error); border-radius: 8px; color: var(--error); }
+  .pm-warn { margin: 0 0 12px; padding: 12px 16px; background: #FFF8E1; border: 2px solid #E8B400; border-radius: 8px; }
+  .pm-err ul, .pm-warn ul { margin: 6px 0 0; padding-left: 20px; }
+  dialog.pm-dlg { width: min(600px, calc(100% - 16px)); }
+  .pm-dlg .dialog-body { max-height: calc(100dvh - 40px); overflow: auto; }
+  .pm-dlg h2 { margin: 0 0 10px; font-size: 20px; }
+  .pm-dlg textarea { width: 100%; min-height: 90px; padding: 10px 12px; border: 2px solid var(--rule-strong); border-radius: var(--radius); font: inherit; font-size: 15px; }
+  .pm-two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  .pm-fit { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; max-height: 240px; overflow: auto; }
+  .pm-fit .fit-brand { margin: 6px 0 2px; font-weight: 700; }
+  .pm-fit .fit-models { display: flex; flex-wrap: wrap; gap: 0 18px; padding-left: 28px; }
+  .pm-fit .check { min-height: 38px; }
+  @media (max-width: 640px) {
+    .page-pm { padding: 12px 10px 40px; }
+    .pm-two { grid-template-columns: 1fr; }
+    .pm-table .sm-hide { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="btn ghost" href="index.html">回首頁</a>
+  <span class="topbar-title">保養範本 <span class="pm-flag">測試中</span></span>
+</header>
+
+<main class="page page-pm">
+  <div id="state" class="state">載入中…</div>
+
+  <section id="panel" hidden>
+    <div class="pm-tabs" role="tablist">
+      <button type="button" class="pm-tab" role="tab" data-tab="list" aria-selected="true">範本</button>
+      <button type="button" class="pm-tab" role="tab" data-tab="map" aria-selected="false">機台對照<span id="n-bad" class="n" hidden>0</span></button>
+      <button type="button" class="pm-tab" role="tab" data-tab="io" aria-selected="false">匯入匯出</button>
+    </div>
+
+    <!-- ========== 範本清單 ========== -->
+    <section id="sec-list">
+      <div id="list-view">
+        <div class="pm-bar">
+          <span class="pm-actions">
+            <span id="sum" style="font-weight:600"></span>
+            <label class="check"><input id="f-off" type="checkbox"> 顯示停用</label>
+          </span>
+          <button id="btn-add" class="btn primary" type="button">新增範本</button>
+        </div>
+        <div id="cards"></div>
+        <p class="muted">一張紙本保養表＝一個範本。點範本看內容、改項目。點檢、保養紀錄還沒做（之後再設計），現場照舊用紙本。</p>
+      </div>
+
+      <!-- 範本內容 -->
+      <div id="detail-view" hidden>
+        <div class="pm-bar">
+          <button id="dt-back" class="btn" type="button">← 回範本清單</button>
+          <span class="pm-actions">
+            <button id="dt-edit" class="btn" type="button">編輯範本資料</button>
+            <button id="dt-add-item" class="btn primary" type="button">新增項目</button>
+          </span>
+        </div>
+        <div id="dt-head" class="pm-box pm-head"></div>
+        <label class="check"><input id="f-item-off" type="checkbox"> 顯示停用的項目</label>
+        <div class="pm-wrap">
+          <table class="pm-table">
+            <thead><tr><th>項次</th><th>項目（中文／泰文）</th><th>頻率</th><th class="sm-hide">誰做</th><th class="sm-hide">做法</th><th>結果</th><th class="sm-hide">只適用機型</th><th></th></tr></thead>
+            <tbody id="dt-items"></tbody>
+          </table>
+        </div>
+        <div id="dt-notes" class="pm-notes"></div>
+      </div>
+    </section>
+
+    <!-- ========== 機台對照 ========== -->
+    <section id="sec-map" hidden>
+      <div class="pm-bar">
+        <span id="map-sum" style="font-weight:600"></span>
+        <label class="check"><input id="f-bad" type="checkbox"> 只看有問題的</label>
+      </div>
+      <div class="pm-wrap">
+        <table class="pm-table">
+          <thead><tr><th>設備編號</th><th>廠牌 型號</th><th>日保養</th><th>月季年保養</th></tr></thead>
+          <tbody id="map-rows"></tbody>
+        </table>
+      </div>
+      <p class="muted">使用中的設備，依廠牌型號自動對到範本：指定型號的優先，其次「廠牌全部」，最後「通用」。紅色＝沒有範本；黃色＝同時對到兩個範本，要改其中一個的適用機型。</p>
+    </section>
+
+    <!-- ========== 匯入匯出 ========== -->
+    <section id="sec-io" hidden>
+      <div class="pm-box">
+        <p style="margin-top:0">用 CSV 一次建立或修改範本，一列一個項目。範本名稱、種類、適用機型、範本備註寫在那個範本的第一列就好。第 1 行欄位名稱：</p>
+        <p><code id="io-headers"></code></p>
+        <ul class="muted" style="margin:0 0 10px;padding-left:20px">
+          <li>種類：日保養、月季年。頻率：每班、每日、每月兩次、每月、每季、每年。誰做：作業員、技術員以上。結果類型：勾選、數值、日期。</li>
+          <li>適用機型、只適用機型的寫法跟備品清單一樣：<code>Brother 全部</code>、<code>森合 TR-60A</code>，好幾個用「；」隔開。</li>
+          <li>項目代號空白＝新增項目；已有的範本：同代號的項目會被改掉，檔案裡沒有的項目維持原樣（不會刪除，要停用請把「使用中」填「否」）。</li>
+          <li>保養表是公司資料：CSV 存在自己電腦，不要上傳 GitHub。</li>
+        </ul>
+        <div class="pm-actions">
+          <input id="io-file" type="file" accept=".csv,text/csv,text/plain">
+          <button id="io-export" class="btn" type="button">匯出全部範本 CSV</button>
+        </div>
+      </div>
+      <div id="io-out"></div>
+    </section>
+  </section>
+</main>
+
+<!-- 範本資料 -->
+<dialog id="dlg-tpl" class="pm-dlg">
+  <form id="tpl-form" class="dialog-body" novalidate>
+    <h2 id="tp-title">新增範本</h2>
+    <div class="pm-two">
+      <label class="field"><span>範本代號（英文大寫、數字、-）</span>
+        <input id="tp-id" type="text" maxlength="20" autocomplete="off" spellcheck="false" style="text-transform:uppercase" placeholder="例：D-BROTHER"></label>
+      <label class="field"><span>種類</span><select id="tp-kind"><option value="daily">日保養</option><option value="periodic">月季年</option></select></label>
+    </div>
+    <label class="field"><span>範本名稱</span><input id="tp-name" type="text" maxlength="40" autocomplete="off"></label>
+    <fieldset class="field"><legend>適用機型（至少一個）</legend><div id="tp-fit" class="pm-fit"></div></fieldset>
+    <label class="field"><span>主檔還沒有的機型（例：Brother S500Xd2，好幾個用「；」隔開）</span>
+      <input id="tp-fit-extra" type="text" maxlength="300" autocomplete="off"></label>
+    <label class="field"><span>表下面的備註（可以中泰並列）</span><textarea id="tp-notes" maxlength="3000"></textarea></label>
+    <label class="check" id="tp-active-box"><input id="tp-active" type="checkbox"> 使用中（不用了就取消勾選，不能刪除）</label>
+    <p id="tp-info" class="muted notes"></p>
+    <p id="tp-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="tp-cancel" class="btn" type="button">取消</button>
+      <button id="tp-save" class="btn primary" type="submit">儲存</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 項目 -->
+<dialog id="dlg-item" class="pm-dlg">
+  <form id="item-form" class="dialog-body" novalidate>
+    <h2 id="it-title">新增項目</h2>
+    <label class="field"><span>項目（中文）</span><textarea id="it-text" maxlength="200" style="min-height:60px"></textarea></label>
+    <label class="field"><span>項目（泰文）</span><textarea id="it-th" maxlength="300" style="min-height:60px"></textarea></label>
+    <div class="pm-two">
+      <label class="field"><span>頻率</span><select id="it-freq"></select></label>
+      <label class="field"><span>誰做</span><select id="it-role"><option value="operator">作業員</option><option value="tech">技術員以上</option></select></label>
+      <label class="field"><span>做法代碼（例：I/C）</span><input id="it-method" type="text" maxlength="20" autocomplete="off"></label>
+      <label class="field"><span>結果類型</span><select id="it-type"><option value="check">勾選 V／X／⊕</option><option value="number">數值</option><option value="date">日期</option></select></label>
+      <label class="field" id="it-max-box"><span>上限（超過算異常）</span><input id="it-max" type="number" step="any" inputmode="decimal"></label>
+      <label class="field" id="it-unit-box"><span>單位</span><input id="it-unit" type="text" maxlength="10" autocomplete="off" placeholder="例：mm"></label>
+    </div>
+    <label class="field"><span>只適用機型（空白＝這個範本的機型都要做；例：麗馳 CV-600；麗馳 CV-800）</span>
+      <input id="it-fit" type="text" maxlength="300" autocomplete="off"></label>
+    <label class="check" id="it-active-box"><input id="it-active" type="checkbox"> 使用中（不用了就取消勾選，不能刪除）</label>
+    <p class="muted">做法代碼：I 檢查且視情況調整、A 調整視情況更換、R 更換、C 清潔、L 潤滑、I* 添加。</p>
+    <p id="it-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="it-cancel" class="btn" type="button">取消</button>
+      <button id="it-save" class="btn primary" type="submit">儲存</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+// ============================================================
+// pm.html：保養範本（功能㉕，測試中：只有管理者能用）
+//   ‧一張紙本保養表＝一個範本 pmTemplates/{範本代號}：日保養（daily）、月季年（periodic）
+//   ‧範本依「適用機型」對到設備（寫法跟備品清單一樣）；「機台對照」列出沒有範本或同時對到兩個的設備
+//   ‧項目只能停用、不能刪除；每次修改版本號 +1（之後的保養紀錄會存當時的版本和項目內容）
+//   ‧匯入匯出 CSV：一列一個項目；保養表 CSV 存在自己電腦，不放 GitHub（repo 是公開的）
+//   ‧點檢、保養紀錄、到期提醒、主管確認：之後再做
+//   讀取量：開頁讀單位、設備（約 200 筆）＋監聽範本（約 10 筆）
+// ============================================================
+// common.js 改版時，把下面網址的 v 數字加 1
+import {
+  db, collection, doc, getDocs, setDoc, serverTimestamp, onSnapshot, getDocFromServer,
+  requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime
+} from './common.js?v=7';
+
+const $ = (id) => document.getElementById(id);
+const WRITE_TIMEOUT_MS = 20000;
+const TPL_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,19}$/;
+const KIND_LABEL = { daily: '日保養', periodic: '月季年' };
+const FREQS = [['shift', '每班'], ['daily', '每日'], ['halfMonth', '每月兩次'], ['monthly', '每月'], ['quarterly', '每季'], ['yearly', '每年']];
+const FREQ_LABEL = Object.fromEntries(FREQS);
+const ROLE_LABEL = { operator: '作業員', tech: '技術員以上' };
+const TYPE_LABEL = { check: '勾選', number: '數值', date: '日期' };
+const IO_HEADERS = ['範本代號', '範本名稱', '種類', '適用機型', '項目代號', '項目', '項目泰文', '頻率', '誰做', '做法', '結果類型', '上限', '單位', '只適用機型', '使用中', '範本備註'];
+
+let me = null;
+let depts = [];
+let machines = [];
+const templates = new Map();
+let loaded = false;
+let currentId = null;      // 正在看的範本
+let editingTpl = null;     // 編輯中的範本代號；null＝新增
+let editingItem = null;    // 編輯中的項目代號；null＝新增
+
+// ---------- 小工具（適用機型的寫法跟備品清單 spares.html 一樣） ----------
+const natural = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'zh-Hant', { numeric: true });
+const lc = (v) => String(v ?? '').trim().toLowerCase();
+function fitLabel(key) {
+  if (key === '*') return '通用';
+  const [brand, model] = String(key).split('/');
+  return model === '*' ? `${brand} 全部` : `${brand} ${model}`;
+}
+const fitText = (keys) => (keys || []).map(fitLabel).join('、');
+function brandModels() {
+  const map = new Map();
+  machines.forEach((m) => {
+    if (!m.brand || !m.model) return;
+    if (!map.has(m.brand)) map.set(m.brand, new Set());
+    map.get(m.brand).add(m.model);
+  });
+  return [...map.entries()].sort((a, b) => natural(a[0], b[0])).map(([b, s]) => [b, [...s].sort(natural)]);
+}
+function parseFit(token) {
+  const t = String(token || '').trim().replace(/\s+/g, ' ');
+  if (!t) return null;
+  if (t === '通用' || t === '*') return { key: '*' };
+  const hit = brandModels().find(([b]) => lc(t) === lc(b) || lc(t).startsWith(`${lc(b)} `));
+  if (!hit) {
+    const sp = t.indexOf(' ');
+    if (sp < 1) return { error: `「${t}」要寫成「廠牌 機型」或「廠牌 全部」` };
+    const brand = t.slice(0, sp); const model = t.slice(sp + 1).trim();
+    if (brand.includes('/') || model.includes('/')) return { error: `「${t}」不能有「/」` };
+    return { key: `${brand}/${model === '全部' ? '*' : model}`, warning: `設備主檔沒有廠牌「${brand}」` };
+  }
+  const [brand, models] = hit;
+  const rest = t.slice(brand.length).trim();
+  if (!rest || rest === '全部') return { key: `${brand}/*` };
+  if (rest.includes('/')) return { error: `「${t}」不能有「/」` };
+  const model = models.find((x) => lc(x) === lc(rest));
+  return model ? { key: `${brand}/${model}` } : { key: `${brand}/${rest}`, warning: `設備主檔還沒有 ${brand} ${rest}` };
+}
+function parseFitList(text) {
+  const out = { keys: [], errors: [], warnings: [] };
+  String(text || '').split(/[；;、\n]/).forEach((part) => {
+    const r = parseFit(part);
+    if (!r) return;
+    if (r.error) { out.errors.push(r.error); return; }
+    if (r.warning) out.warnings.push(r.warning);
+    if (!out.keys.includes(r.key)) out.keys.push(r.key);
+  });
+  return out;
+}
+// 範本對這台機的分數：指定型號 3、廠牌全部 2、通用 1、不適用 0
+function fitScore(keys, m) {
+  let best = 0;
+  (keys || []).forEach((k) => {
+    if (k === '*') { best = Math.max(best, 1); return; }
+    const [b, mo] = String(k).split('/');
+    if (lc(b) !== lc(m.brand)) return;
+    if (mo === '*') best = Math.max(best, 2);
+    else if (lc(mo) === lc(m.model)) best = 3;
+  });
+  return best;
+}
+// 這台機的範本：{ daily: { tpl, conflict: [其他同分的] }, periodic: … }
+function templatesFor(m) {
+  const out = {};
+  ['daily', 'periodic'].forEach((kind) => {
+    let best = 0; let list = [];
+    templates.forEach((t) => {
+      if (t.active === false || t.kind !== kind) return;
+      const s = fitScore(t.fitKeys, m);
+      if (s > best) { best = s; list = [t]; } else if (s > 0 && s === best) list.push(t);
+    });
+    out[kind] = list;
+  });
+  return out;
+}
+function withTimeout(promise) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(
+    () => reject(Object.assign(new Error('timeout'), { code: 'unavailable' })), WRITE_TIMEOUT_MS))]);
+}
+function nextItemCode(items, reserved = []) {
+  let max = 0;
+  [...(items || []).map((i) => i.code), ...reserved].forEach((c) => { const m = /^i(\d+)$/.exec(c || ''); if (m) max = Math.max(max, Number(m[1])); });
+  return `i${String(max + 1).padStart(2, '0')}`;
+}
+
+// ============================================================
+// 開始（測試中：只有管理者）
+// ============================================================
+const ctx = await requireUser({ adminOnly: true });
+if (ctx.error) {
+  $('state').textContent = errorMessage(ctx.error);
+} else if (ctx.forbidden) {
+  $('state').innerHTML = '<p>保養範本還在測試中，只有管理者能使用。</p><a class="btn" href="index.html">回首頁</a>';
+} else {
+  me = ctx.profile;
+  try {
+    const [deptSnap, machineSnap] = await Promise.all([getDocs(collection(db, 'departments')), getDocs(collection(db, 'machines'))]);
+    depts = deptSnap.docs.map((d) => ({ ...d.data(), id: d.id })).filter((d) => d.active !== false).sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99));
+    machines = machineSnap.docs.map((d) => ({ ...d.data(), machineId: d.id })).filter((m) => m.active === true)
+      .sort((a, b) => natural(a.machineId, b.machineId));
+    $('it-freq').innerHTML = FREQS.map(([c, l]) => `<option value="${c}">${l}</option>`).join('');
+    $('io-headers').textContent = IO_HEADERS.join('、');
+    onSnapshot(collection(db, 'pmTemplates'), (snap) => {
+      templates.clear();
+      snap.docs.forEach((d) => templates.set(d.id, { ...d.data(), templateId: d.id }));
+      loaded = true;
+      renderAll();
+    }, (err) => { $('cards').innerHTML = `<div class="pm-err">讀不到範本：${escapeHtml(errorMessage(err))}</div>`; });
+    $('state').hidden = true;
+    $('panel').hidden = false;
+  } catch (err) {
+    $('state').textContent = errorMessage(err);
+  }
+}
+
+function renderAll() {
+  renderCards();
+  renderMap();
+  if (currentId) renderDetail();
+}
+
+// 分頁
+document.querySelector('.pm-tabs').addEventListener('click', (event) => {
+  const b = event.target.closest('.pm-tab');
+  if (!b) return;
+  document.querySelectorAll('.pm-tab').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+  ['list', 'map', 'io'].forEach((t) => { $(`sec-${t}`).hidden = t !== b.dataset.tab; });
+});
+
+// ============================================================
+// 範本清單
+// ============================================================
+function renderCards() {
+  if (!loaded) return;
+  const showOff = $('f-off').checked;
+  const list = [...templates.values()].filter((t) => showOff || t.active !== false).sort((a, b) => natural(a.templateId, b.templateId));
+  $('sum').textContent = `${list.length} 個範本`;
+  if (!list.length) {
+    $('cards').innerHTML = '<p class="pm-box">還沒有範本。到「匯入匯出」分頁匯入保養範本 CSV，或按「新增範本」。</p>';
+    return;
+  }
+  $('cards').innerHTML = ['daily', 'periodic'].map((kind) => {
+    const g = list.filter((t) => t.kind === kind);
+    if (!g.length) return '';
+    return `<h2 class="pm-group">${KIND_LABEL[kind]}（${g.length}）</h2><div class="pm-cards">${g.map((t) => {
+      const n = (t.items || []).filter((i) => i.active !== false).length;
+      const used = machines.filter((m) => templatesFor(m)[kind][0]?.templateId === t.templateId).length;
+      return `<button type="button" class="pm-card${t.active === false ? ' is-off' : ''}" data-id="${escapeHtml(t.templateId)}">
+        <span class="id">${escapeHtml(t.templateId)}　第 ${t.version || 1} 版${t.active === false ? '　停用' : ''}</span>
+        <b>${escapeHtml(t.name)}</b>
+        <span>${n} 項・對到 ${used} 台</span>
+        <span class="fit">${escapeHtml(fitText(t.fitKeys))}</span></button>`;
+    }).join('')}</div>`;
+  }).join('');
+}
+$('f-off').addEventListener('change', renderCards);
+$('cards').addEventListener('click', (event) => {
+  const c = event.target.closest('.pm-card');
+  if (c) openDetail(c.dataset.id);
+});
+$('btn-add').addEventListener('click', () => openTpl(null));
+
+// ============================================================
+// 範本內容
+// ============================================================
+function openDetail(id) {
+  currentId = id;
+  $('list-view').hidden = true;
+  $('detail-view').hidden = false;
+  renderDetail();
+  window.scrollTo(0, 0);
+}
+$('dt-back').addEventListener('click', () => { currentId = null; $('detail-view').hidden = true; $('list-view').hidden = false; });
+$('f-item-off').addEventListener('change', renderDetail);
+
+function renderDetail() {
+  const t = templates.get(currentId);
+  if (!t) { $('dt-head').innerHTML = '<p>找不到這個範本</p>'; $('dt-items').innerHTML = ''; return; }
+  const used = machines.filter((m) => templatesFor(m)[t.kind][0]?.templateId === t.templateId);
+  $('dt-head').innerHTML = `<h2>${escapeHtml(t.name)}${t.active === false ? ' <span class="tag tag-off">停用</span>' : ''}</h2>
+    <dl class="pm-meta">
+      <dt>範本代號</dt><dd>${escapeHtml(t.templateId)}（第 ${t.version || 1} 版）</dd>
+      <dt>種類</dt><dd>${KIND_LABEL[t.kind] || escapeHtml(t.kind)}</dd>
+      <dt>適用機型</dt><dd>${escapeHtml(fitText(t.fitKeys))}</dd>
+      <dt>對到的設備</dt><dd>${used.length} 台${used.length ? `：${escapeHtml(used.slice(0, 40).map((m) => m.machineId).join('、'))}${used.length > 40 ? '…' : ''}` : ''}</dd>
+      <dt>最後更新</dt><dd>${escapeHtml(formatTime(t.updatedAt))}${t.updatedByEmpNo ? `（${escapeHtml(t.updatedByEmpNo)}）` : ''}</dd>
+    </dl>`;
+  const showOff = $('f-item-off').checked;
+  const items = (t.items || []).map((it, idx) => ({ it, idx })).filter(({ it }) => showOff || it.active !== false);
+  let no = 0;
+  $('dt-items').innerHTML = items.map(({ it, idx }) => {
+    if (it.active !== false) no += 1;
+    const result = it.resultType === 'number'
+      ? `數值${it.specMax != null ? `（上限 ${escapeHtml(String(it.specMax))} ${escapeHtml(it.unit || '')}）` : ''}`
+      : (TYPE_LABEL[it.resultType] || escapeHtml(it.resultType));
+    return `<tr class="${it.active === false ? 'is-off' : ''}">
+      <td class="nw">${it.active === false ? '—' : no}<span class="pm-th">${escapeHtml(it.code)}</span></td>
+      <td>${escapeHtml(it.text)}${it.textTh ? `<span class="pm-th" lang="th">${escapeHtml(it.textTh)}</span>` : ''}</td>
+      <td class="nw">${FREQ_LABEL[it.freq] || escapeHtml(it.freq)}</td>
+      <td class="nw sm-hide">${ROLE_LABEL[it.role] || escapeHtml(it.role)}</td>
+      <td class="nw sm-hide">${escapeHtml(it.methods || '')}</td>
+      <td class="nw">${result}</td>
+      <td class="sm-hide">${escapeHtml(fitText(it.fitKeys))}</td>
+      <td class="ops"><span class="pm-ops">
+        <button type="button" class="btn" data-op="up" data-idx="${idx}" aria-label="往上移"${idx === 0 ? ' disabled' : ''}>↑</button>
+        <button type="button" class="btn" data-op="down" data-idx="${idx}" aria-label="往下移"${idx === t.items.length - 1 ? ' disabled' : ''}>↓</button>
+        <button type="button" class="btn" data-op="edit" data-idx="${idx}">編輯</button></span></td></tr>`;
+  }).join('') || '<tr><td colspan="8" class="muted">還沒有項目</td></tr>';
+  $('dt-notes').textContent = t.notes ? `備註：\n${t.notes}` : '';
+}
+
+$('dt-items').addEventListener('click', async (event) => {
+  const b = event.target.closest('[data-op]');
+  if (!b) return;
+  const t = templates.get(currentId);
+  const idx = Number(b.dataset.idx);
+  if (b.dataset.op === 'edit') { openItem(t.items[idx].code); return; }
+  const to = b.dataset.op === 'up' ? idx - 1 : idx + 1;
+  const items = [...t.items];
+  [items[idx], items[to]] = [items[to], items[idx]];
+  b.disabled = true;
+  try {
+    await saveTemplate({ ...t, items }, t.version);
+  } catch (err) {
+    toast(saveError(err), 'error');
+  }
+});
+
+// ============================================================
+// 存檔：整筆寫入、版本號 +1；先跟資料庫確認版本沒被別人改過
+// ============================================================
+function saveError(err) {
+  if (err?.message === 'version') return '別人剛改過這個範本，畫面已更新，請再改一次';
+  if (err?.message === 'exists') return '這個範本代號已經有了';
+  return err?.message && !err.code ? err.message : errorMessage(err);
+}
+async function saveTemplate(t, prevVersion) {
+  const ref = doc(db, 'pmTemplates', t.templateId);
+  const fresh = await getDocFromServer(ref);
+  if (prevVersion == null && fresh.exists()) throw new Error('exists');
+  if (prevVersion != null && (!fresh.exists() || (fresh.data().version || 0) !== prevVersion)) throw new Error('version');
+  await withTimeout(setDoc(ref, {
+    templateId: t.templateId, name: t.name, kind: t.kind, deptId: t.deptId || depts[0]?.id || '',
+    fitKeys: t.fitKeys, items: t.items.map(cleanItem), notes: t.notes || '',
+    version: prevVersion == null ? 1 : prevVersion + 1, active: t.active !== false,
+    updatedAt: serverTimestamp(), updatedByEmpNo: myEmpNo()
+  }));
+}
+function cleanItem(it) {
+  return {
+    code: it.code, text: it.text, textTh: it.textTh || '', freq: it.freq, role: it.role, methods: it.methods || '',
+    resultType: it.resultType, specMax: it.resultType === 'number' && it.specMax != null && it.specMax !== '' ? Number(it.specMax) : null,
+    unit: it.resultType === 'number' ? (it.unit || '') : '', fitKeys: it.fitKeys || [], active: it.active !== false
+  };
+}
+
+// ============================================================
+// 範本資料（新增／編輯）
+// ============================================================
+function renderFitChoices(selected) {
+  const sel = new Set(selected);
+  const known = new Set(['*']);
+  let html = `<label class="check"><input type="checkbox" value="*"${sel.has('*') ? ' checked' : ''}> 通用（所有機台）</label>`;
+  brandModels().forEach(([brand, models]) => {
+    known.add(`${brand}/*`);
+    html += `<div class="fit-brand"><label class="check"><input type="checkbox" value="${escapeHtml(`${brand}/*`)}"${sel.has(`${brand}/*`) ? ' checked' : ''}> ${escapeHtml(brand)} 全部機型</label></div>
+      <div class="fit-models">${models.map((m) => { known.add(`${brand}/${m}`); return `<label class="check"><input type="checkbox" value="${escapeHtml(`${brand}/${m}`)}"${sel.has(`${brand}/${m}`) ? ' checked' : ''}> ${escapeHtml(m)}</label>`; }).join('')}</div>`;
+  });
+  $('tp-fit').innerHTML = html;
+  return selected.filter((k) => !known.has(k));
+}
+function openTpl(id) {
+  const t = id ? templates.get(id) : null;
+  editingTpl = t ? t.templateId : null;
+  $('tp-title').textContent = t ? `編輯 ${t.templateId}` : '新增範本';
+  $('tp-id').value = t ? t.templateId : '';
+  $('tp-id').disabled = !!t;
+  $('tp-kind').value = t?.kind || 'daily';
+  $('tp-kind').disabled = !!t;     // 種類建立後不改（之後保養紀錄依種類分）
+  $('tp-name').value = t?.name || '';
+  $('tp-fit-extra').value = renderFitChoices(t?.fitKeys || []).map(fitLabel).join('；');
+  $('tp-notes').value = t?.notes || '';
+  $('tp-active-box').hidden = !t;
+  $('tp-active').checked = t ? t.active !== false : true;
+  $('tp-info').textContent = t ? '範本代號、種類建立後不能改。' : '新增後再按「新增項目」加項目。';
+  $('tp-error').textContent = '';
+  $('dlg-tpl').showModal();
+}
+$('dt-edit').addEventListener('click', () => openTpl(currentId));
+$('tp-cancel').addEventListener('click', () => $('dlg-tpl').close());
+$('tpl-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const fail = (m) => { $('tp-error').textContent = m; };
+  const id = editingTpl || $('tp-id').value.trim().toUpperCase();
+  const name = $('tp-name').value.trim();
+  if (!TPL_PATTERN.test(id)) return fail('範本代號是英文大寫、數字和「-」，2～20 碼');
+  if (!editingTpl && templates.has(id)) return fail(`範本代號 ${id} 已經有了`);
+  if (!name) return fail('請填範本名稱');
+  const fit = [...$('tp-fit').querySelectorAll('input:checked')].map((i) => i.value);
+  const extra = parseFitList($('tp-fit-extra').value);
+  if (extra.errors.length) return fail(extra.errors[0]);
+  extra.keys.forEach((k) => { if (!fit.includes(k)) fit.push(k); });
+  if (!fit.length) return fail('請勾適用機型');
+  if (fit.length > 40) return fail('適用機型最多 40 個');
+  const old = editingTpl ? templates.get(editingTpl) : null;
+  fail('');
+  setBusy($('tp-save'), true, '儲存中…');
+  try {
+    await saveTemplate({
+      templateId: id, name, kind: old?.kind || $('tp-kind').value, deptId: old?.deptId, fitKeys: fit,
+      items: old?.items || [], notes: $('tp-notes').value.trim(), active: old ? $('tp-active').checked : true
+    }, old ? old.version : null);
+    $('dlg-tpl').close();
+    toast(old ? `已儲存 ${id}` : `已新增 ${id}`);
+    if (!old) openDetail(id);
+  } catch (err) {
+    fail(saveError(err));
+  } finally {
+    setBusy($('tp-save'), false);
+  }
+});
+
+// ============================================================
+// 項目（新增／編輯）
+// ============================================================
+function syncTypeFields() {
+  const n = $('it-type').value === 'number';
+  $('it-max-box').hidden = !n; $('it-unit-box').hidden = !n;
+}
+$('it-type').addEventListener('change', syncTypeFields);
+function openItem(code) {
+  const t = templates.get(currentId);
+  const it = code ? t.items.find((x) => x.code === code) : null;
+  editingItem = it ? it.code : null;
+  $('it-title').textContent = it ? `編輯項目 ${it.code}` : `新增項目（${nextItemCode(t.items)}）`;
+  $('it-text').value = it?.text || '';
+  $('it-th').value = it?.textTh || '';
+  $('it-freq').value = it?.freq || (t.kind === 'daily' ? 'shift' : 'monthly');
+  $('it-role').value = it?.role || (t.kind === 'daily' ? 'operator' : 'tech');
+  $('it-method').value = it?.methods || '';
+  $('it-type').value = it?.resultType || 'check';
+  $('it-max').value = it?.specMax != null ? String(it.specMax) : '';
+  $('it-unit').value = it?.unit || '';
+  $('it-fit').value = (it?.fitKeys || []).map(fitLabel).join('；');
+  $('it-active-box').hidden = !it;
+  $('it-active').checked = it ? it.active !== false : true;
+  $('it-error').textContent = '';
+  syncTypeFields();
+  $('dlg-item').showModal();
+}
+$('dt-add-item').addEventListener('click', () => openItem(null));
+$('it-cancel').addEventListener('click', () => $('dlg-item').close());
+$('item-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const fail = (m) => { $('it-error').textContent = m; };
+  const t = templates.get(currentId);
+  const text = $('it-text').value.trim();
+  if (!text) return fail('請填項目內容');
+  const type = $('it-type').value;
+  const maxText = $('it-max').value.trim();
+  if (type === 'number' && maxText !== '' && !Number.isFinite(Number(maxText))) return fail('上限要填數字');
+  const fit = parseFitList($('it-fit').value);
+  if (fit.errors.length) return fail(fit.errors[0]);
+  const item = {
+    code: editingItem || nextItemCode(t.items), text, textTh: $('it-th').value.trim(), freq: $('it-freq').value,
+    role: $('it-role').value, methods: $('it-method').value.trim().toUpperCase(), resultType: type,
+    specMax: type === 'number' && maxText !== '' ? Number(maxText) : null, unit: $('it-unit').value.trim(),
+    fitKeys: fit.keys, active: editingItem ? $('it-active').checked : true
+  };
+  const items = editingItem ? t.items.map((x) => (x.code === editingItem ? item : x)) : [...t.items, item];
+  if (items.length > 80) return fail('一個範本最多 80 項');
+  fail('');
+  setBusy($('it-save'), true, '儲存中…');
+  try {
+    await saveTemplate({ ...t, items }, t.version);
+    $('dlg-item').close();
+    toast(editingItem ? `已儲存 ${item.code}` : `已新增 ${item.code}`);
+  } catch (err) {
+    fail(saveError(err));
+  } finally {
+    setBusy($('it-save'), false);
+  }
+});
+
+// ============================================================
+// 機台對照
+// ============================================================
+function renderMap() {
+  if (!loaded) return;
+  const onlyBad = $('f-bad').checked;
+  let bad = 0;
+  const rows = machines.map((m) => {
+    const f = templatesFor(m);
+    const cell = (list) => (list.length === 0 ? '<b style="color:#B3261E">沒有範本</b>'
+      : list.length > 1 ? `對到 ${list.length} 個：${escapeHtml(list.map((t) => t.templateId).join('、'))}`
+        : `${escapeHtml(list[0].name)}`);
+    const isBad = f.daily.length === 0 || f.periodic.length === 0;
+    const isWarn = f.daily.length > 1 || f.periodic.length > 1;
+    if (isBad || isWarn) bad += 1;
+    return { m, isBad, isWarn, html: `<tr class="${isBad ? 'is-bad' : isWarn ? 'is-warn' : ''}"><td class="nw">${escapeHtml(m.machineId)}</td><td>${escapeHtml(`${m.brand} ${m.model}`)}</td><td>${cell(f.daily)}</td><td>${cell(f.periodic)}</td></tr>` };
+  });
+  $('map-sum').textContent = `使用中設備 ${machines.length} 台，有問題 ${bad} 台`;
+  $('n-bad').hidden = bad === 0;
+  $('n-bad').textContent = bad;
+  $('map-rows').innerHTML = rows.filter((r) => !onlyBad || r.isBad || r.isWarn).map((r) => r.html).join('')
+    || '<tr><td colspan="4" class="muted">全部設備都有範本</td></tr>';
+}
+$('f-bad').addEventListener('change', renderMap);
+
+// ============================================================
+// 匯入匯出
+// ============================================================
+function csvCell(value) {
+  let text = String(value ?? '');
+  if (/^[=+\-@\t\r]/.test(text) && !/^-?\d+(\.\d+)?$/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+function downloadCsv(rows, filename) {
+  const blob = new Blob(['﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+$('io-export').addEventListener('click', () => {
+  const rows = [];
+  [...templates.values()].sort((a, b) => natural(a.templateId, b.templateId)).forEach((t) => {
+    const items = t.items?.length ? t.items : [null];
+    items.forEach((it, i) => {
+      const first = i === 0;
+      rows.push([t.templateId, first ? t.name : '', first ? KIND_LABEL[t.kind] : '', first ? (t.fitKeys || []).map(fitLabel).join('；') : '',
+        it?.code || '', it?.text || '', it?.textTh || '', it ? FREQ_LABEL[it.freq] : '', it ? ROLE_LABEL[it.role] : '', it?.methods || '',
+        it ? TYPE_LABEL[it.resultType] : '', it?.specMax ?? '', it?.unit || '', (it?.fitKeys || []).map(fitLabel).join('；'),
+        it ? (it.active === false ? '否' : '是') : '', first ? (t.notes || '') : '']);
+    });
+  });
+  downloadCsv([IO_HEADERS, ...rows], '保養範本.csv');
+  toast(`已匯出 ${templates.size} 個範本`);
+});
+
+function decodeCsv(buffer) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer); } catch { /* 往下試 Big5 */ }
+  try { return new TextDecoder('big5').decode(buffer); } catch { return null; }
+}
+function parseCsv(text) {
+  const clean = text.replace(/^﻿/, '');
+  const firstLine = clean.split(/\r?\n/, 1)[0] || '';
+  const sep = !firstLine.includes(',') && firstLine.includes('\t') ? '\t' : ',';
+  const rows = []; let row = []; let cell = ''; let quoted = false;
+  for (let i = 0; i < clean.length; i += 1) {
+    const c = clean[i];
+    if (quoted) {
+      if (c === '"' && clean[i + 1] === '"') { cell += '"'; i += 1; } else if (c === '"') quoted = false; else cell += c;
+    } else if (c === '"' && cell === '') quoted = true;
+    else if (c === sep) { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && clean[i + 1] === '\n') i += 1;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((v) => String(v).trim() !== ''));
+}
+
+let ioTable = null;
+let ioFile = '';
+let ioPlan = null;
+let importing = false;
+$('io-file').addEventListener('change', async () => {
+  const file = $('io-file').files[0];
+  ioPlan = null;
+  if (!file) { $('io-out').innerHTML = ''; return; }
+  if (file.size > 2 * 1024 * 1024) { $('io-out').innerHTML = '<div class="pm-err">檔案太大（超過 2 MB），是不是選錯檔？</div>'; return; }
+  const text = decodeCsv(await file.arrayBuffer());
+  if (text == null) { $('io-out').innerHTML = '<div class="pm-err">讀不懂這個檔案，請用 Excel 另存「CSV UTF-8」</div>'; return; }
+  ioTable = parseCsv(text);
+  ioFile = file.name;
+  showPlan();
+});
+
+const byLabel = (pairs) => Object.fromEntries(pairs.map(([c, l]) => [l, c]));
+const FREQ_BY = byLabel(FREQS);
+const ROLE_BY = byLabel(Object.entries(ROLE_LABEL));
+const TYPE_BY = byLabel(Object.entries(TYPE_LABEL));
+const KIND_BY = byLabel(Object.entries(KIND_LABEL));
+
+// 檢查檔案內容，算出要寫什麼（不寫資料庫）
+function buildPlan(table) {
+  const plan = { creates: [], updates: [], unchanged: 0, errors: [], warnings: [] };
+  const header = (table[0] || []).map((h) => String(h ?? '').replace(/^﻿/, '').trim());
+  const col = (l) => header.indexOf(l);
+  if (col('範本代號') < 0 || col('項目') < 0) { plan.errors.push('第 1 行找不到「範本代號」「項目」欄位，請確認欄位名稱跟範本一樣'); return plan; }
+  const get = (row, l) => { const i = col(l); return i < 0 ? '' : String(row[i] ?? '').trim(); };
+  const groups = new Map();
+  table.slice(1).forEach((row, i) => {
+    const id = get(row, '範本代號').toUpperCase();
+    if (!id) { plan.errors.push(`第 ${i + 2} 行：範本代號空白`); return; }
+    if (!groups.has(id)) groups.set(id, []);
+    groups.get(id).push({ row, line: i + 2 });
+  });
+  groups.forEach((rows, id) => {
+    const err = (line, m) => plan.errors.push(`第 ${line} 行：${m}`);
+    if (!TPL_PATTERN.test(id)) { err(rows[0].line, `範本代號「${id}」格式不對（英文大寫、數字和「-」，2～20 碼）`); return; }
+    const old = templates.get(id) || null;
+    const firstVal = (l) => (rows.find((r) => get(r.row, l)) ? get(rows.find((r) => get(r.row, l)).row, l) : '');
+    const name = firstVal('範本名稱') || old?.name || '';
+    const kindText = firstVal('種類');
+    const kind = kindText ? KIND_BY[kindText] : old?.kind;
+    const fitRaw = firstVal('適用機型');
+    const notesRaw = rows.map((r) => get(r.row, '範本備註')).find((v) => v) ?? '';
+    if (!name) { err(rows[0].line, `${id} 沒有範本名稱`); return; }
+    if (name.length > 40) { err(rows[0].line, '範本名稱最多 40 字'); return; }
+    if (kindText && !kind) { err(rows[0].line, `種類「${kindText}」要是：日保養、月季年`); return; }
+    if (!kind) { err(rows[0].line, `${id} 沒有種類`); return; }
+    if (old && kind !== old.kind) { err(rows[0].line, `${id} 種類建立後不能改（目前是${KIND_LABEL[old.kind]}）`); return; }
+    const fit = parseFitList(fitRaw);
+    if (fit.errors.length) { err(rows[0].line, fit.errors.join('；')); return; }
+    fit.warnings.forEach((w) => plan.warnings.push(`${id}：${w}（照填的存）`));
+    const fitKeys = fit.keys.length ? fit.keys : (old?.fitKeys || []);
+    if (!fitKeys.length) { err(rows[0].line, `${id} 沒有適用機型`); return; }
+    const notes = notesRaw || old?.notes || '';
+    if (notes.length > 3000) { err(rows[0].line, '範本備註最多 3000 字'); return; }
+    const items = (old?.items || []).map((x) => ({ ...x }));
+    const reserved = [];
+    const seen = new Set();
+    let bad = false;
+    rows.forEach(({ row, line }) => {
+      const text = get(row, '項目');
+      let code = get(row, '項目代號').toLowerCase();
+      if (!text && !code) return;           // 只有範本資料的列
+      if (code && !/^i\d{2,3}$/.test(code)) { err(line, `項目代號「${code}」格式不對（例：i01）`); bad = true; return; }
+      if (code && seen.has(code)) { err(line, `項目代號 ${code} 在 ${id} 裡重複`); bad = true; return; }
+      const exist = code ? items.find((x) => x.code === code) : null;
+      if (!text && !exist) { err(line, '新項目一定要有項目內容'); bad = true; return; }
+      const pick = (label, map, oldVal, name0) => {
+        const v = get(row, label);
+        if (!v) return oldVal;
+        if (!(v in map)) { err(line, `${name0}「${v}」要是：${Object.keys(map).join('、')}`); bad = true; return oldVal; }
+        return map[v];
+      };
+      const freq = pick('頻率', FREQ_BY, exist?.freq ?? (kind === 'daily' ? 'shift' : 'monthly'), '頻率');
+      const role = pick('誰做', ROLE_BY, exist?.role ?? (kind === 'daily' ? 'operator' : 'tech'), '誰做');
+      const type = pick('結果類型', TYPE_BY, exist?.resultType ?? 'check', '結果類型');
+      const maxText = get(row, '上限');
+      if (maxText && !Number.isFinite(Number(maxText))) { err(line, '上限要填數字'); bad = true; return; }
+      const itemFit = parseFitList(get(row, '只適用機型'));
+      if (itemFit.errors.length) { err(line, itemFit.errors.join('；')); bad = true; return; }
+      itemFit.warnings.forEach((w) => plan.warnings.push(`${id} 第 ${line} 行：${w}（照填的存）`));
+      const activeText = get(row, '使用中');
+      if (activeText && !['是', '否'].includes(activeText)) { err(line, '使用中要填「是」或「否」'); bad = true; return; }
+      if (text.length > 200) { err(line, '項目最多 200 字'); bad = true; return; }
+      if (get(row, '項目泰文').length > 300) { err(line, '項目泰文最多 300 字'); bad = true; return; }
+      if (!code) { code = nextItemCode(items, reserved); reserved.push(code); }
+      seen.add(code);
+      const item = {
+        code, text: text || exist.text, textTh: get(row, '項目泰文') || exist?.textTh || '', freq, role,
+        methods: (get(row, '做法') || exist?.methods || '').toUpperCase(), resultType: type,
+        specMax: maxText ? Number(maxText) : (exist?.specMax ?? null), unit: get(row, '單位') || exist?.unit || '',
+        fitKeys: itemFit.keys.length ? itemFit.keys : (exist?.fitKeys || []), active: activeText ? activeText === '是' : (exist ? exist.active !== false : true)
+      };
+      if (exist) items[items.indexOf(exist)] = item; else items.push(item);
+    });
+    if (bad) return;
+    if (items.length > 80) { err(rows[0].line, `${id} 項目超過 80 項`); return; }
+    if (old) {
+      const missing = old.items.filter((x) => !seen.has(x.code)).map((x) => x.code);
+      if (missing.length && seen.size) plan.warnings.push(`${id}：檔案裡沒有 ${missing.join('、')}，維持原樣`);
+    }
+    const next = { templateId: id, name, kind, deptId: old?.deptId, fitKeys, items: items.map(cleanItem), notes, active: old ? old.active !== false : true };
+    if (!old) plan.creates.push(next);
+    else {
+      const same = JSON.stringify([next.name, next.fitKeys, next.items, next.notes]) === JSON.stringify([old.name, old.fitKeys, (old.items || []).map(cleanItem), old.notes || '']);
+      if (same) plan.unchanged += 1; else plan.updates.push({ ...next, version: old.version });
+    }
+  });
+  if (!depts.length) plan.errors.push('還沒有單位資料');
+  return plan;
+}
+
+function showPlan() {
+  if (!ioTable) return;
+  ioPlan = buildPlan(ioTable);
+  const p = ioPlan;
+  const list = (items) => `<ul>${items.slice(0, 30).map((x) => `<li>${escapeHtml(x)}</li>`).join('')}${items.length > 30 ? `<li>…還有 ${items.length - 30} 項</li>` : ''}</ul>`;
+  let html = `<div class="pm-box"><b>${escapeHtml(ioFile)}</b>：新增 ${p.creates.length} 個範本、修改 ${p.updates.length} 個、沒變 ${p.unchanged} 個</div>`;
+  if (p.errors.length) html += `<div class="pm-err">有 ${p.errors.length} 個錯誤，整批不會寫入，請改好再選一次檔案：${list(p.errors)}</div>`;
+  if (p.warnings.length) html += `<div class="pm-warn">提醒 ${p.warnings.length} 項（不擋匯入）：${list(p.warnings)}</div>`;
+  if (!p.errors.length && (p.creates.length || p.updates.length)) {
+    html += `<div class="pm-wrap"><table class="pm-table"><thead><tr><th>動作</th><th>範本代號</th><th>名稱</th><th>種類</th><th>項目數</th><th>適用機型</th></tr></thead><tbody>
+      ${[...p.creates.map((t) => ['新增', t]), ...p.updates.map((t) => ['修改', t])].map(([a, t]) => `<tr><td>${a}</td><td class="nw">${escapeHtml(t.templateId)}</td><td>${escapeHtml(t.name)}</td><td class="nw">${KIND_LABEL[t.kind]}</td><td>${t.items.filter((i) => i.active).length}</td><td>${escapeHtml(fitText(t.fitKeys))}</td></tr>`).join('')}
+      </tbody></table></div>
+      <div class="row-actions" style="margin-top:12px"><button id="io-go" class="btn primary" type="button">確定匯入</button></div>
+      <p id="io-progress" style="font-weight:600"></p>`;
+  } else if (!p.errors.length) html += '<p class="muted">沒有要寫入的資料。</p>';
+  $('io-out').innerHTML = html;
+}
+
+$('io-out').addEventListener('click', async (event) => {
+  if (!event.target.closest('#io-go') || importing) return;
+  showPlan();       // 用最新的資料庫內容再檢查一次（中途斷線接著做時，已寫的會變成「沒變」）
+  const p = ioPlan;
+  if (!p || p.errors.length) return;
+  const todo = [...p.creates.map((t) => [t, null]), ...p.updates.map((t) => [t, t.version])];
+  if (!todo.length) return;
+  importing = true;
+  setBusy($('io-go'), true, '匯入中…');
+  let done = 0;
+  try {
+    for (const [t, ver] of todo) {
+      $('io-progress').textContent = `寫入中 ${done + 1} / ${todo.length}：${t.templateId}`;
+      await saveTemplate(t, ver);
+      done += 1;
+    }
+    $('io-progress').textContent = `完成：${done} 個範本`;
+    toast(`匯入完成：${done} 個範本`);
+    ioTable = null;
+    $('io-file').value = '';
+  } catch (err) {
+    $('io-progress').textContent = `寫到 ${todo[done]?.[0].templateId} 失敗：${saveError(err)}。已寫入 ${done} 個；再按一次「確定匯入」會從沒寫的接著做。`;
+  } finally {
+    importing = false;
+    if ($('io-go')) setBusy($('io-go'), false);
+  }
+});
+</script>
+</body>
+</html>
