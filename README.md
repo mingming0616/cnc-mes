@@ -20,6 +20,7 @@ CNC 精密零件代工廠銑床課自建的工廠製造管理執行系統（MES�
 | `list.html` | 設備清單與履歷（搜尋、篩選、匯出 CSV） |
 | `repairs.html` | 報修單（待接單／維修中／待驗收／已結案、維修設定） |
 | `repair.js` | 報修流程（機台頁、報修單頁共用） |
+| `spares.html` | 備品清單（清單、領用／入庫／盤點、異動紀錄、CSV 匯入匯出） |
 | `status-panel.js` | 切換狀態面板（看板、機台頁共用） |
 | `history.js` | 異動履歷＋修正紀錄 |
 | `floorplan.js` | 平面圖（看板、主檔共用） |
@@ -44,7 +45,7 @@ CNC 精密零件代工廠銑床課自建的工廠製造管理執行系統（MES�
 
 | 檔案 | 版本號寫在 |
 |---|---|
-| `common.js` | `board.html`、`machine.html`、`list.html`、`repairs.html`、`master.html` |
+| `common.js` | `board.html`、`machine.html`、`list.html`、`repairs.html`、`master.html`、`spares.html` |
 | `history.js`、`status-panel.js`、`board.css` | `board.html`、`machine.html` |
 | `repair.js` | `machine.html`、`repairs.html` |
 | `floorplan.js`、`floorplan.css` | `board.html`、`master.html` |
@@ -58,6 +59,7 @@ CNC 精密零件代工廠銑床課自建的工廠製造管理執行系統（MES�
 - 平面圖檔（`floorplans` 資料夾的 `.js`、DXF、預覽圖）
 - 設備清單 CSV、`設備清單.xlsx`
 - v3.3 匯出的狀態 CSV
+- 備品清單 CSV（有單價、供應商）
 - 任何密碼
 - 客戶名稱（一律用代號）
 

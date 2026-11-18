@@ -1,0 +1,1250 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1D262D">
+<title>備品清單｜CNC MES</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=2">
+<style>
+  /* ============================================================
+     功能㉓ 備品清單頁的樣式（只有這頁用，寫在這裡就不用改 style.css 的版本號）
+     ============================================================ */
+  .page-sp { max-width: none; padding: 16px 16px 48px; }
+  .sp-conn { margin-left: auto; font-size: 14px; padding: 2px 10px; border: 1px solid rgba(255, 255, 255, .55); border-radius: 4px; white-space: nowrap; }
+  .sp-conn.is-offline { border-style: dashed; color: #FFD7D2; }
+  .sp-box { background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; }
+  .sp-mc { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+  .sp-mc b { font-family: var(--font-code); font-size: 22px; }
+  .sp-mc .btn { margin-left: auto; }
+
+  .sp-tabs { display: flex; gap: 0; margin-bottom: 14px; border-bottom: 2px solid var(--ink); overflow-x: auto; }
+  .sp-tab { min-height: 48px; padding: 0 20px; border: 2px solid transparent; border-bottom: 0; border-radius: 8px 8px 0 0;
+    background: none; font: inherit; font-weight: 600; color: var(--ink-soft); cursor: pointer; white-space: nowrap; }
+  .sp-tab[aria-selected="true"] { background: var(--panel); color: var(--ink); border-color: var(--ink); margin-bottom: -2px; }
+  .sp-tab .n { display: inline-block; min-width: 24px; margin-left: 4px; padding: 0 6px; border-radius: 12px; background: #D93025; color: #fff; font-size: 15px; }
+
+  .sp-bar { display: flex; flex-wrap: wrap; gap: 10px 12px; align-items: end; margin-bottom: 10px; }
+  .sp-bar .field { margin: 0; }
+  .sp-bar .field > span { font-size: 14px; }
+  .sp-search { flex: 1 1 260px; }
+  .sp-bar select { min-width: 130px; }
+  .sp-bar input[type="date"] { min-height: 52px; padding: 0 12px; border: 2px solid var(--rule-strong); border-radius: var(--radius); font: inherit; background: #fff; color: var(--ink); }
+  .sp-sum { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .sp-sum-text { font-weight: 600; }
+  .sp-actions { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+
+  .sp-wrap { overflow: auto; max-height: calc(100vh - 260px); max-height: calc(100dvh - 260px); min-height: 260px;
+    background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; }
+  .sp-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 16px; }
+  .sp-table th, .sp-table td { padding: 8px 10px; text-align: left; white-space: nowrap; border-bottom: 1px solid var(--rule); }
+  .sp-table thead th { position: sticky; top: 0; z-index: 2; background: var(--sunk); font-size: 14px; color: var(--ink-soft); border-bottom: 2px solid var(--ink); }
+  .sp-table .col-id { position: sticky; left: 0; z-index: 1; background: var(--panel); font-family: var(--font-code); font-size: 18px; font-weight: 700; letter-spacing: .03em; }
+  .sp-table thead .col-id { z-index: 3; background: var(--sunk); font-family: inherit; font-size: 14px; letter-spacing: 0; }
+  .sp-table tbody tr.is-link { cursor: pointer; }
+  .sp-table tbody tr.is-link:hover td { background: var(--sunk); }
+  .sp-table .col-wide { white-space: normal; min-width: 150px; max-width: 280px; }
+  .sp-table .col-num { text-align: right; font-family: var(--font-code); font-size: 18px; }
+  .sp-table tr.is-low td { background: #FDECEA; }
+  .sp-table tr.is-low .col-id { background: #FDECEA; }
+  .sp-table tr.is-off td { color: var(--ink-soft); }
+  .sp-low { display: inline-block; margin-left: 6px; padding: 0 6px; border-radius: 4px; background: #D93025; color: #fff; font-size: 13px; font-family: var(--font-text); }
+  .sp-empty { padding: 28px 16px; color: var(--ink-soft); text-align: center; }
+  .sp-cost { color: #6B4E00; }
+  .mv-in { color: #1E7B3A; font-weight: 700; }
+  .mv-out { color: #B3261E; font-weight: 700; }
+  .mv-adj { color: #2F6FDE; font-weight: 700; }
+  .sp-err { margin: 0 0 12px; padding: 12px 16px; background: #FDECEA; border: 2px solid var(--error); border-radius: 8px; color: var(--error); word-break: break-all; }
+  .sp-warn { margin: 0 0 12px; padding: 12px 16px; background: #FFF8E1; border: 2px solid #E8B400; border-radius: 8px; }
+  .sp-warn ul, .sp-err ul { margin: 6px 0 0; padding-left: 20px; }
+
+  /* 明細、表單視窗 */
+  dialog.sp-dlg { width: min(560px, calc(100% - 16px)); }
+  .sp-dlg .dialog-body { max-height: calc(100dvh - 40px); overflow: auto; }
+  .sp-dlg h2 { margin: 0 0 4px; font-size: 20px; }
+  .sp-kv { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 12px; font-size: 16px; }
+  .sp-kv dt { color: var(--ink-soft); }
+  .sp-kv dd { margin: 0; word-break: break-all; }
+  .sp-stock { display: flex; align-items: baseline; gap: 10px; margin: 6px 0 10px; }
+  .sp-stock b { font-family: var(--font-code); font-size: 40px; line-height: 1; }
+  .sp-stock.is-low b { color: #D93025; }
+  .sp-ops { display: flex; gap: 8px; margin: 0 0 12px; }
+  .sp-ops .btn { flex: 1 1 0; min-height: 60px; padding: 0 8px; font-size: 19px; font-weight: 700; white-space: nowrap; }
+  .sp-ops .op-out { background: #B3261E; border-color: #B3261E; color: #fff; }
+  .sp-ops .op-in { background: #1E7B3A; border-color: #1E7B3A; color: #fff; }
+  .sp-recent { font-size: 15px; margin: 0; padding: 0; list-style: none; }
+  .sp-recent li { padding: 6px 0; border-bottom: 1px solid var(--rule); }
+  .sp-qty input { font-family: var(--font-code); font-size: 26px !important; text-align: center; }
+  .sp-fit { border: 1px solid var(--rule); border-radius: 6px; padding: 8px 10px; max-height: 260px; overflow: auto; }
+  .sp-fit .fit-brand { margin: 6px 0 2px; font-weight: 700; }
+  .sp-fit .fit-models { display: flex; flex-wrap: wrap; gap: 0 18px; padding-left: 28px; }
+  .sp-fit .check { min-height: 38px; }
+  .sp-two { display: grid; grid-template-columns: 1fr 1fr; gap: 0 12px; }
+  .sp-sec { margin: 14px 0 6px; font-size: 16px; color: var(--ink-soft); border-top: 1px solid var(--rule); padding-top: 10px; }
+  .sp-note { font-size: 14px; color: var(--ink-soft); margin: -8px 0 12px; }
+
+  @media (max-width: 640px) {
+    .page-sp { padding: 12px 10px 40px; }
+    .sp-bar select { min-width: 0; width: 100%; }
+    .sp-bar .field { flex: 1 1 calc(50% - 6px); }
+    .sp-bar .sp-search { flex-basis: 100%; }
+    .sp-table .sm-hide { display: none; }
+    .sp-wrap { max-height: none; }
+    .sp-tab { padding: 0 12px; }
+    .sp-two { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="btn ghost" href="index.html">回首頁</a>
+  <span class="topbar-title">備品清單</span>
+  <span id="conn" class="sp-conn">連線中…</span>
+</header>
+
+<main class="page page-sp">
+  <div id="state" class="state">載入中…</div>
+
+  <section id="panel" hidden>
+    <!-- 從機台頁「這台適用的備品」進來（網址 ?machineId=）：只列這台機型用得到的 -->
+    <section id="mc-mode" class="sp-box sp-mc" hidden>
+      <span>只看 <b id="mc-id"></b> 適用的備品</span>
+      <span id="mc-model" class="muted"></span>
+      <a id="mc-back" class="btn" href="#">回機台頁</a>
+      <a class="btn" href="spares.html">看全部備品</a>
+    </section>
+
+    <div class="sp-tabs" role="tablist">
+      <button type="button" class="sp-tab" role="tab" data-tab="list" aria-selected="true">清單<span id="n-low" class="n" hidden>0</span></button>
+      <button type="button" class="sp-tab" role="tab" data-tab="moves" aria-selected="false">異動紀錄</button>
+      <button type="button" class="sp-tab" role="tab" data-tab="import" aria-selected="false" id="tab-import" hidden>匯入</button>
+    </div>
+
+    <!-- ========== 清單 ========== -->
+    <section id="sec-list">
+      <div class="sp-bar">
+        <label class="field sp-search"><span>搜尋（備品編號、ERP料號、品名、規格、原廠料號、位置）</span>
+          <input id="q" type="search" placeholder="例：近接開關、SP0012" autocomplete="off" enterkeyhint="search"></label>
+        <label class="field"><span>廠牌</span><select id="f-brand"></select></label>
+        <label class="field"><span>機型</span><select id="f-model"></select></label>
+        <label class="field"><span>分類</span><select id="f-cat"></select></label>
+      </div>
+      <div class="sp-sum">
+        <span class="sp-actions">
+          <span id="sum" class="sp-sum-text"></span>
+          <label class="check"><input id="f-low" type="checkbox"> 只看要補貨</label>
+          <label class="check"><input id="f-off" type="checkbox"> 顯示停用</label>
+        </span>
+        <span class="sp-actions">
+          <button id="btn-clear" class="btn" type="button">清除篩選</button>
+          <button id="btn-csv" class="btn" type="button" hidden>匯出 CSV</button>
+          <button id="btn-add" class="btn primary" type="button" hidden>新增備品</button>
+        </span>
+      </div>
+      <div class="sp-wrap">
+        <table class="sp-table">
+          <thead><tr id="head"></tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+        <div id="empty" class="sp-empty" hidden></div>
+      </div>
+      <p class="muted">紅色＝庫存已經到安全庫存或更少，要補貨。點一列可以領用、入庫、盤點。庫存會即時更新。</p>
+    </section>
+
+    <!-- ========== 異動紀錄 ========== -->
+    <section id="sec-moves" hidden>
+      <form id="mv-form" class="sp-bar" novalidate>
+        <label class="field"><span>起日（生產日）</span><input id="mv-from" type="date" required></label>
+        <label class="field"><span>迄日（生產日）</span><input id="mv-to" type="date" required></label>
+        <label class="field"><span>類型</span>
+          <select id="mv-type"><option value="">全部</option><option value="out">領用</option><option value="in">入庫</option><option value="adjust">盤點</option></select></label>
+        <label class="field"><span>備品編號或設備編號（空白＝全部）</span><input id="mv-key" type="search" autocomplete="off" placeholder="全部"></label>
+        <button id="mv-go" class="btn primary" type="submit">查詢</button>
+      </form>
+      <div id="mv-err" class="sp-err" hidden></div>
+      <div id="mv-result" hidden>
+        <div class="sp-sum">
+          <span id="mv-sum" class="sp-sum-text"></span>
+          <span class="sp-actions"><button id="mv-csv" class="btn primary" type="button" hidden>匯出 CSV</button></span>
+        </div>
+        <div class="sp-wrap">
+          <table class="sp-table">
+            <thead><tr><th>時間</th><th class="sm-hide">班別</th><th>類型</th><th class="col-id">備品編號</th><th>品名</th>
+              <th class="col-num">數量</th><th class="col-num sm-hide">改前→改後</th><th>設備編號</th><th class="col-wide">備註</th><th>誰</th></tr></thead>
+            <tbody id="mv-rows"></tbody>
+          </table>
+          <div id="mv-empty" class="sp-empty" hidden>這段期間沒有異動</div>
+        </div>
+      </div>
+      <p class="muted">選日期按「查詢」才讀。一次最多 92 天、1,000 筆。類型和編號是讀出來之後才篩的。</p>
+    </section>
+
+    <!-- ========== 匯入（管理者） ========== -->
+    <section id="sec-import" hidden>
+      <div class="sp-box">
+        <p style="margin-top:0">用 CSV 一次新增或修改備品。第 1 行是欄位名稱：</p>
+        <p><code id="imp-headers"></code></p>
+        <ul class="muted" style="margin:0 0 10px;padding-left:20px">
+          <li>備品編號空白＝系統自動編下一號（SP0001…）；同品名＋規格＋ERP料號已經有的，算同一項。</li>
+          <li>適用機型：<code>Brother 全部</code>、<code>森合 TR-60A</code>、<code>通用</code>，好幾個用「；」隔開。</li>
+          <li>已有的備品：空白的欄位維持原樣；「期初庫存」不會改已有的庫存（要改請用盤點）。</li>
+          <li>單價、供應商只有管理者、勾了「看得到單價、供應商」的人看得到。</li>
+          <li>用 Excel 做好另存「CSV UTF-8」；清單分頁的「匯出 CSV」也是同一個格式，可以改完再匯入。</li>
+        </ul>
+        <div class="sp-actions">
+          <input id="imp-file" type="file" accept=".csv,text/csv,text/plain">
+          <button id="imp-template" class="btn" type="button">下載空白範本</button>
+        </div>
+      </div>
+      <div id="imp-out"></div>
+    </section>
+  </section>
+</main>
+
+<!-- 備品明細 -->
+<dialog id="dlg-detail" class="sp-dlg">
+  <div class="dialog-body">
+    <div id="dt-body"></div>
+    <div class="row-actions" style="margin-top:12px">
+      <button id="dt-edit" class="btn" type="button" hidden>編輯</button>
+      <button id="dt-close" class="btn" type="button">關閉</button>
+    </div>
+  </div>
+</dialog>
+
+<!-- 領用／入庫／盤點 -->
+<dialog id="dlg-move" class="sp-dlg">
+  <form id="mv-dlg-form" class="dialog-body" novalidate>
+    <h2 id="md-title"></h2>
+    <p id="md-sub" class="muted" style="margin:0 0 10px"></p>
+    <label class="field sp-qty"><span id="md-qty-label">數量</span>
+      <input id="md-qty" type="number" inputmode="numeric" min="0" max="99999" step="1"></label>
+    <p id="md-calc" class="sp-note"></p>
+    <label class="field" id="md-machine-box"><span>用在哪台機（必填）</span>
+      <input id="md-machine" type="text" list="md-machines" maxlength="12" autocomplete="off" spellcheck="false" placeholder="例：M101" style="text-transform:uppercase"></label>
+    <datalist id="md-machines"></datalist>
+    <p id="md-fitwarn" class="sp-warn" hidden></p>
+    <label class="field"><span id="md-note-label">備註</span>
+      <input id="md-note" type="text" maxlength="100" autocomplete="off"></label>
+    <p class="muted" style="margin-top:-6px">進出一定要有網路（要先確認目前的庫存）。打錯不能改，請再記一筆反向的（領錯了就記入庫退回）。</p>
+    <p id="md-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="md-cancel" class="btn" type="button">取消</button>
+      <button id="md-save" class="btn primary" type="submit">確定</button>
+    </div>
+  </form>
+</dialog>
+
+<!-- 新增／編輯備品（管理者） -->
+<dialog id="dlg-edit" class="sp-dlg">
+  <form id="ed-form" class="dialog-body" novalidate>
+    <h2 id="ed-title">新增備品</h2>
+    <div class="sp-two">
+      <label class="field"><span>備品編號（空白＝自動）</span>
+        <input id="ed-no" type="text" maxlength="20" autocomplete="off" spellcheck="false" style="text-transform:uppercase"></label>
+      <label class="field"><span>ERP 料號</span><input id="ed-erp" type="text" maxlength="40" autocomplete="off"></label>
+    </div>
+    <label class="field"><span>品名（必填）</span><input id="ed-name" type="text" maxlength="40" autocomplete="off"></label>
+    <label class="field"><span>規格</span><input id="ed-spec" type="text" maxlength="100" autocomplete="off"></label>
+    <div class="sp-two">
+      <label class="field"><span>原廠料號</span><input id="ed-maker" type="text" maxlength="40" autocomplete="off"></label>
+      <label class="field"><span>分類</span><select id="ed-cat"></select></label>
+    </div>
+    <fieldset class="field"><legend>適用機型（至少一個）</legend>
+      <div id="ed-fit" class="sp-fit"></div>
+    </fieldset>
+    <label class="field"><span>主檔還沒有的機型（例：Brother S500Xd2，好幾個用「；」隔開）</span>
+      <input id="ed-fit-extra" type="text" maxlength="200" autocomplete="off"></label>
+    <div class="sp-two">
+      <label class="field"><span>單位</span><input id="ed-unit" type="text" maxlength="10" list="ed-units" autocomplete="off"></label>
+      <label class="field"><span>安全庫存</span><input id="ed-safety" type="number" inputmode="numeric" min="0" max="99999" step="1"></label>
+    </div>
+    <datalist id="ed-units"><option value="個"><option value="條"><option value="組"><option value="支"><option value="片"><option value="公升"></datalist>
+    <label class="field"><span>存放位置</span><input id="ed-loc" type="text" maxlength="40" autocomplete="off" placeholder="例：2廠2F 維修室 B櫃"></label>
+    <label class="field" id="ed-open-box"><span>期初庫存（新增時才填；之後要改請用盤點）</span>
+      <input id="ed-open" type="number" inputmode="numeric" min="0" max="99999" step="1"></label>
+    <label class="field" id="ed-dept-box" hidden><span>單位</span><select id="ed-dept"></select></label>
+    <label class="field"><span>備註</span><input id="ed-note" type="text" maxlength="100" autocomplete="off"></label>
+    <label class="check" id="ed-active-box"><input id="ed-active" type="checkbox"> 使用中（不用了就取消勾選，不能刪除）</label>
+    <h3 class="sp-sec">單價、供應商（只有管理者和勾了權限的人看得到）</h3>
+    <div class="sp-two">
+      <label class="field"><span>單價（元）</span><input id="ed-price" type="number" inputmode="decimal" min="0" step="any"></label>
+      <label class="field"><span>供應商</span><input id="ed-supplier" type="text" maxlength="40" autocomplete="off"></label>
+    </div>
+    <p id="ed-info" class="muted notes"></p>
+    <p id="ed-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="ed-cancel" class="btn" type="button">取消</button>
+      <button id="ed-save" class="btn primary" type="submit">儲存</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+// ============================================================
+// spares.html：備品清單（功能㉓）
+//   ‧清單：搜尋、篩選（廠牌→機型、分類、只看要補貨）；庫存 ≤ 安全庫存整列變紅
+//   ‧明細：領用（一定要填機台）、入庫、盤點（只有管理者）、最近 10 筆進出
+//   ‧異動紀錄：依生產日區間查（最多 92 天、1,000 筆），匯出 CSV
+//   ‧匯入：CSV 一次新增或修改（管理者），先預覽再寫入，中途斷線再按一次接著做
+//   ‧網址 ?machineId=設備編號：只列這台機型用得到的備品（機台頁「這台適用的備品」進來）
+//   資料：spareParts（備品主檔＋目前庫存）、spareMoves（進出紀錄，只增不改）、
+//         spareCosts（單價、供應商，只有管理者和 users.canSeeCost 是 true 的人讀得到）
+//   讀取量：開頁讀單位、設備、班別各一次（約 210 筆）＋監聽全部備品（約 100 筆，之後只有變動的那筆再讀）；
+//           看得到單價的人多讀一次 spareCosts（約 100 筆）；明細最近 10 筆、異動紀錄按了才讀
+//   庫存規則：庫存只能透過進出紀錄改，而且同一次寫入（安全規則檢查數字對得上）；不能領成負數
+// ============================================================
+// common.js 改版時，把下面網址的 v 數字加 1
+import {
+  db, collection, doc, getDoc, getDocs, writeBatch, serverTimestamp, onSnapshot, query, where, orderBy, limit,
+  Timestamp, getDocFromServer,
+  requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime, prodDateAndShift
+} from './common.js?v=7';
+
+const $ = (id) => document.getElementById(id);
+const FILTER_KEY = 'cncmes-spares-filters-v1';
+const MV_MAX_DAYS = 92;
+const MV_LIMIT = 1000;
+const WRITE_TIMEOUT_MS = 20000;
+const DAY = 86400000;
+const TZ_OFFSET = 8 * 3600000;
+
+// 分類（代碼存資料庫，畫面顯示中文）
+const CATEGORIES = [
+  ['electrical', '電氣'], ['mechanical', '機械'], ['hydraulic', '油壓氣壓'],
+  ['coolant', '冷卻排屑'], ['consumable', '濾芯耗材'], ['other', '其他']
+];
+const CAT_LABEL = Object.fromEntries(CATEGORIES);
+const MOVE_LABEL = { in: '入庫', out: '領用', adjust: '盤點' };
+// 匯入檔的欄位（清單匯出也是這個格式）；常數要放在「開始」之前，開始的程式等完資料庫就會用到
+const IMPORT_HEADERS = ['備品編號', 'ERP料號', '品名', '規格', '原廠料號', '分類', '適用機型', '單位', '存放位置', '安全庫存', '期初庫存', '單價', '供應商', '備註'];
+const SPARENO_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,19}$/;
+const MACHINE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,11}$/;
+const MID = (() => {
+  const v = (new URLSearchParams(location.search).get('machineId') || '').trim().toUpperCase();
+  return MACHINE_PATTERN.test(v) ? v : '';
+})();
+
+let me = null;
+let canSee = false;           // 看得到單價、供應商
+let depts = [];
+let machines = [];            // 使用中的設備
+let shiftSetting = null;
+const spares = new Map();     // 備品編號 → 備品
+const costs = new Map();      // 備品編號 → { unitPrice, supplier }
+let sparesLoaded = false;
+let current = null;           // 明細視窗正在看的備品編號
+let editing = null;           // 編輯中的備品編號；null＝新增
+let moveType = null;
+const ui = { q: '', brand: '', model: '', cat: '', low: false, off: false };
+const mv = { rows: [], label: '' };
+
+// ---------- 小工具 ----------
+const natural = (a, b) => String(a ?? '').localeCompare(String(b ?? ''), 'zh-Hant', { numeric: true });
+const canMove = (s) => me.role === 'admin' || (me.role === 'maintainer' && (me.deptIds || []).includes(s.deptId));
+const isAdmin = () => me.role === 'admin';
+const isLow = (s) => s.active !== false && (s.safetyStock || 0) > 0 && (s.stockQty || 0) <= s.safetyStock;
+const tsMs = (t) => (t && typeof t.toMillis === 'function' ? t.toMillis() : 0);
+const lc = (v) => String(v ?? '').trim().toLowerCase();
+const store = {
+  get(key) { try { return JSON.parse(localStorage.getItem(key) || 'null'); } catch { return null; } },
+  set(key, value) { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* 存不了也沒關係 */ } }
+};
+const money = (v) => (typeof v === 'number' ? v.toLocaleString('zh-TW', { maximumFractionDigits: 2 }) : '');
+
+// 適用機型的寫法：'*' 通用、'Brother/*' 該廠牌全部、'森合/TR-60A' 單一機型
+function fitLabel(key) {
+  if (key === '*') return '通用';
+  const [brand, model] = String(key).split('/');
+  return model === '*' ? `${brand} 全部` : `${brand} ${model}`;
+}
+const fitText = (keys) => (keys || []).map(fitLabel).join('、');
+
+// 這個備品能不能用在這台機
+function fitsMachine(s, m) {
+  const brand = lc(m.brand); const model = lc(m.model);
+  return (s.fitKeys || []).some((k) => {
+    if (k === '*') return true;
+    const [b, mo] = String(k).split('/');
+    return lc(b) === brand && (mo === '*' || lc(mo) === model);
+  });
+}
+
+// 主檔的廠牌 → 機型清單（依名稱排序）
+function brandModels() {
+  const map = new Map();
+  machines.forEach((m) => {
+    if (!m.brand || !m.model) return;
+    if (!map.has(m.brand)) map.set(m.brand, new Set());
+    map.get(m.brand).add(m.model);
+  });
+  return [...map.entries()].sort((a, b) => natural(a[0], b[0]))
+    .map(([brand, set]) => [brand, [...set].sort(natural)]);
+}
+
+// 一段文字 → 適用機型代碼；認不得的回傳 warning（還是收下，例如明年才進的機型）
+//   「通用」→ *；「Brother 全部」→ Brother/*；「森合 TR-60A」→ 森合/TR-60A（大小寫照主檔）
+function parseFit(token) {
+  const t = String(token || '').trim().replace(/\s+/g, ' ');
+  if (!t) return null;
+  if (t === '通用' || t === '*') return { key: '*' };
+  const list = brandModels();
+  const hit = list.find(([b]) => lc(t) === lc(b) || lc(t).startsWith(`${lc(b)} `));
+  if (!hit) {
+    const sp = t.indexOf(' ');
+    if (sp < 1) return { error: `「${t}」要寫成「廠牌 機型」或「廠牌 全部」` };
+    const brand = t.slice(0, sp); const model = t.slice(sp + 1).trim();
+    if (brand.includes('/') || model.includes('/')) return { error: `「${t}」不能有「/」` };
+    return { key: `${brand}/${model === '全部' ? '*' : model}`, warning: `設備主檔沒有廠牌「${brand}」` };
+  }
+  const [brand, models] = hit;
+  const rest = t.slice(brand.length).trim();
+  if (!rest || rest === '全部') return { key: `${brand}/*` };
+  if (rest.includes('/')) return { error: `「${t}」不能有「/」` };
+  const model = models.find((x) => lc(x) === lc(rest));
+  return model ? { key: `${brand}/${model}` } : { key: `${brand}/${rest}`, warning: `設備主檔還沒有 ${brand} ${rest}` };
+}
+function parseFitList(text) {
+  const out = { keys: [], errors: [], warnings: [] };
+  String(text || '').split(/[；;、\n]/).forEach((part) => {
+    const r = parseFit(part);
+    if (!r) return;
+    if (r.error) { out.errors.push(r.error); return; }
+    if (r.warning) out.warnings.push(r.warning);
+    if (!out.keys.includes(r.key)) out.keys.push(r.key);
+  });
+  return out;
+}
+
+// 下一個自動編號 SP0001、SP0002…（reserved：這次已經預定要用的）
+function nextSpareNo(reserved = new Set()) {
+  let max = 0;
+  [...spares.keys(), ...reserved].forEach((id) => {
+    const m = /^SP(\d+)$/.exec(id);
+    if (m) max = Math.max(max, Number(m[1]));
+  });
+  return `SP${String(max + 1).padStart(4, '0')}`;
+}
+
+function setConn(online) {
+  $('conn').textContent = online ? '即時更新中' : '離線：可能不是最新';
+  $('conn').classList.toggle('is-offline', !online);
+}
+
+// 寫入加上逾時：網路斷掉時 Firebase 會一直等，這裡 20 秒就當作失敗
+function withTimeout(promise) {
+  return Promise.race([promise, new Promise((_, reject) => setTimeout(
+    () => reject(Object.assign(new Error('timeout'), { code: 'unavailable' })), WRITE_TIMEOUT_MS))]);
+}
+
+// ============================================================
+// 開始
+// ============================================================
+const ctx = await requireUser();
+if (ctx.error) {
+  $('state').textContent = errorMessage(ctx.error);
+} else {
+  me = ctx.profile;
+  canSee = me.role === 'admin' || me.canSeeCost === true;
+  try {
+    await loadMasters();
+    setupUi();
+    startSpares();
+    $('state').hidden = true;
+    $('panel').hidden = false;
+  } catch (err) {
+    $('state').textContent = errorMessage(err);
+  }
+}
+
+async function loadMasters() {
+  const [deptSnap, machineSnap, shiftSnap] = await Promise.all([
+    getDocs(collection(db, 'departments')),
+    getDocs(collection(db, 'machines')),
+    getDoc(doc(db, 'settings', 'shifts'))
+  ]);
+  depts = deptSnap.docs.map((d) => ({ ...d.data(), id: d.id })).filter((d) => d.active !== false)
+    .sort((a, b) => (a.sortOrder ?? 99) - (b.sortOrder ?? 99));
+  machines = machineSnap.docs.map((d) => ({ ...d.data(), machineId: d.id })).filter((m) => m.active === true);
+  shiftSetting = shiftSnap.exists() ? shiftSnap.data() : null;
+  if (canSee) {
+    const costSnap = await getDocs(collection(db, 'spareCosts'));
+    costSnap.docs.forEach((d) => costs.set(d.id, d.data()));
+  }
+}
+
+function startSpares() {
+  onSnapshot(collection(db, 'spareParts'), { includeMetadataChanges: true }, (snap) => {
+    snap.docChanges().forEach((c) => {
+      if (c.type === 'removed') spares.delete(c.doc.id);
+      else spares.set(c.doc.id, { ...c.doc.data(), spareNo: c.doc.id });
+    });
+    sparesLoaded = true;
+    setConn(!snap.metadata.fromCache);
+    renderList();
+    if (current && $('dlg-detail').open) renderDetail(false);
+  }, (err) => {
+    $('rows').innerHTML = '';
+    $('empty').hidden = false;
+    $('empty').textContent = `讀不到備品：${errorMessage(err)}`;
+  });
+}
+
+function setupUi() {
+  const saved = store.get(FILTER_KEY);
+  if (saved && !MID) Object.assign(ui, { brand: saved.brand || '', cat: saved.cat || '', low: !!saved.low });
+  if (MID) {
+    const m = machines.find((x) => x.machineId === MID);
+    $('mc-mode').hidden = false;
+    $('mc-id').textContent = MID;
+    $('mc-model').textContent = m ? `${m.brand} ${m.model}` : '設備主檔找不到這台（或已不使用）';
+    $('mc-back').href = `machine.html?machineId=${encodeURIComponent(MID)}`;
+  }
+  $('btn-add').hidden = !isAdmin();
+  $('tab-import').hidden = !isAdmin();
+  $('btn-csv').hidden = !(me.role === 'admin' || me.role === 'maintainer');
+  $('f-cat').innerHTML = '<option value="">全部</option>' + CATEGORIES.map(([c, l]) => `<option value="${c}">${l}</option>`).join('');
+  $('ed-cat').innerHTML = CATEGORIES.map(([c, l]) => `<option value="${c}">${l}</option>`).join('');
+  $('md-machines').innerHTML = machines.map((m) => `<option value="${escapeHtml(m.machineId)}">${escapeHtml(`${m.brand} ${m.model}`)}</option>`).join('');
+  $('ed-dept').innerHTML = depts.map((d) => `<option value="${escapeHtml(d.id)}">${escapeHtml(d.name || d.id)}</option>`).join('');
+  $('ed-dept-box').hidden = depts.length <= 1;
+  renderBrandFilter();
+  $('f-cat').value = ui.cat;
+  $('f-low').checked = ui.low;
+  const today = prodDateAndShift(new Date(), shiftSetting).prodDate;
+  $('mv-to').value = today;
+  $('mv-from').value = new Date(Date.parse(`${today}T00:00:00Z`) - 29 * DAY).toISOString().slice(0, 10);
+  $('imp-headers').textContent = IMPORT_HEADERS.join('、');
+}
+
+function renderBrandFilter() {
+  const list = brandModels();
+  // 備品上有、主檔沒有的廠牌也列出來
+  const brands = new Set(list.map(([b]) => b));
+  spares.forEach((s) => (s.fitKeys || []).forEach((k) => { if (k !== '*') brands.add(k.split('/')[0]); }));
+  $('f-brand').innerHTML = '<option value="">全部</option>' + [...brands].sort(natural).map((b) => `<option>${escapeHtml(b)}</option>`).join('');
+  if (![...brands].includes(ui.brand)) ui.brand = '';
+  $('f-brand').value = ui.brand;
+  const models = (list.find(([b]) => b === ui.brand) || [null, []])[1];
+  $('f-model').innerHTML = '<option value="">全部</option>' + models.map((m) => `<option>${escapeHtml(m)}</option>`).join('');
+  if (!models.includes(ui.model)) ui.model = '';
+  $('f-model').value = ui.model;
+  $('f-model').disabled = !ui.brand;
+}
+
+// ============================================================
+// 清單
+// ============================================================
+function columns() {
+  return [
+    // 庫存放前面：手機不用往右滑就看得到
+    ['spareNo', '備品編號', 'col-id'], ['name', '品名', ''], ['stock', '庫存', 'col-num'], ['safety', '安全庫存', 'col-num sm-hide'],
+    ['location', '存放位置', ''], ['spec', '規格', 'col-wide sm-hide'], ['fit', '適用機型', 'col-wide'],
+    ...(canSee ? [['price', '單價', 'col-num sp-cost'], ['supplier', '供應商', 'sp-cost sm-hide']] : []),
+    ['erp', 'ERP料號', 'sm-hide'], ['cat', '分類', 'sm-hide']
+  ];
+}
+
+function filtered() {
+  const q = lc(ui.q);
+  const m = MID ? machines.find((x) => x.machineId === MID) : null;
+  return [...spares.values()].filter((s) => {
+    if (!ui.off && s.active === false) return false;
+    if (ui.low && !isLow(s)) return false;
+    if (ui.cat && s.category !== ui.cat) return false;
+    if (MID) { if (!m || !fitsMachine(s, m)) return false; }
+    if (ui.brand) {
+      const ok = (s.fitKeys || []).some((k) => {
+        if (k === '*') return true;
+        const [b, mo] = k.split('/');
+        return lc(b) === lc(ui.brand) && (!ui.model || mo === '*' || lc(mo) === lc(ui.model));
+      });
+      if (!ok) return false;
+    }
+    if (q) {
+      const hay = [s.spareNo, s.erpPartNo, s.name, s.spec, s.makerPartNo, s.location, s.note, fitText(s.fitKeys)].map(lc).join(' ');
+      if (!q.split(/\s+/).every((w) => hay.includes(w))) return false;
+    }
+    return true;
+  }).sort((a, b) => (isLow(b) - isLow(a)) || natural(a.spareNo, b.spareNo));
+}
+
+function renderList() {
+  renderBrandFilter();
+  const cols = columns();
+  $('head').innerHTML = cols.map(([, label, cls]) => `<th class="${cls}">${label}</th>`).join('');
+  const lowCount = [...spares.values()].filter(isLow).length;
+  $('n-low').hidden = lowCount === 0;
+  $('n-low').textContent = lowCount;
+  if (!sparesLoaded) { $('rows').innerHTML = ''; $('empty').hidden = false; $('empty').textContent = '讀取中…'; return; }
+  const list = filtered();
+  $('sum').textContent = `${list.length} 項${lowCount ? `（要補貨 ${lowCount} 項）` : ''}`;
+  $('rows').innerHTML = list.map((s) => {
+    const c = costs.get(s.spareNo) || {};
+    const cell = {
+      spareNo: escapeHtml(s.spareNo), name: escapeHtml(s.name), spec: escapeHtml(s.spec), fit: escapeHtml(fitText(s.fitKeys)),
+      location: escapeHtml(s.location), stock: `${s.stockQty ?? 0}${isLow(s) ? '<span class="sp-low">補貨</span>' : ''}`,
+      safety: String(s.safetyStock ?? 0), price: escapeHtml(money(c.unitPrice)), supplier: escapeHtml(c.supplier || ''),
+      erp: escapeHtml(s.erpPartNo), cat: escapeHtml(CAT_LABEL[s.category] || s.category || '')
+    };
+    const cls = ['is-link', isLow(s) ? 'is-low' : '', s.active === false ? 'is-off' : ''].join(' ');
+    return `<tr class="${cls}" data-no="${escapeHtml(s.spareNo)}">${cols.map(([k, , cl]) => `<td class="${cl}">${cell[k]}${k === 'name' && s.active === false ? ' <span class="tag tag-off">停用</span>' : ''}</td>`).join('')}</tr>`;
+  }).join('');
+  $('empty').hidden = list.length > 0;
+  $('empty').textContent = spares.size === 0
+    ? (isAdmin() ? '還沒有備品。按「新增備品」或到「匯入」分頁用 CSV 一次建立。' : '還沒有備品資料。')
+    : '沒有符合的備品';
+}
+
+$('q').addEventListener('input', () => { ui.q = $('q').value; renderList(); });
+$('f-brand').addEventListener('change', () => { ui.brand = $('f-brand').value; ui.model = ''; saveFilters(); renderList(); });
+$('f-model').addEventListener('change', () => { ui.model = $('f-model').value; renderList(); });
+$('f-cat').addEventListener('change', () => { ui.cat = $('f-cat').value; saveFilters(); renderList(); });
+$('f-low').addEventListener('change', () => { ui.low = $('f-low').checked; saveFilters(); renderList(); });
+$('f-off').addEventListener('change', () => { ui.off = $('f-off').checked; renderList(); });
+$('btn-clear').addEventListener('click', () => {
+  Object.assign(ui, { q: '', brand: '', model: '', cat: '', low: false, off: false });
+  $('q').value = ''; $('f-cat').value = ''; $('f-low').checked = false; $('f-off').checked = false;
+  saveFilters(); renderList();
+});
+function saveFilters() { if (!MID) store.set(FILTER_KEY, { brand: ui.brand, cat: ui.cat, low: ui.low }); }
+$('rows').addEventListener('click', (event) => {
+  const row = event.target.closest('tr[data-no]');
+  if (row) openDetail(row.dataset.no);
+});
+
+// 分頁
+document.querySelector('.sp-tabs').addEventListener('click', (event) => {
+  const b = event.target.closest('.sp-tab');
+  if (!b) return;
+  document.querySelectorAll('.sp-tab').forEach((x) => x.setAttribute('aria-selected', String(x === b)));
+  ['list', 'moves', 'import'].forEach((t) => { $(`sec-${t}`).hidden = t !== b.dataset.tab; });
+});
+
+// ============================================================
+// 明細
+// ============================================================
+function openDetail(no) {
+  current = no;
+  renderDetail(true);
+  if (!$('dlg-detail').open) $('dlg-detail').showModal();
+}
+$('dt-close').addEventListener('click', () => { $('dlg-detail').close(); current = null; });
+$('dt-edit').addEventListener('click', () => { $('dlg-detail').close(); openEdit(current); });
+
+function renderDetail(loadRecent) {
+  const s = spares.get(current);
+  if (!s) { $('dt-body').innerHTML = '<p>找不到這項備品</p>'; return; }
+  const c = costs.get(s.spareNo) || {};
+  const ops = s.active === false
+    ? '<p class="muted">這項備品已停用，不能領用、入庫。</p>'
+    : (canMove(s)
+      ? `<div class="sp-ops">
+          <button type="button" class="btn op-out" data-op="out">領用 −</button>
+          <button type="button" class="btn op-in" data-op="in">入庫 ＋</button>
+          ${isAdmin() ? '<button type="button" class="btn" data-op="adjust">盤點</button>' : ''}
+        </div>`
+      : '<p class="muted">你的帳號只能看，不能領用、入庫。</p>');
+  const prev = $('dt-recent')?.innerHTML;
+  $('dt-body').innerHTML = `
+    <h2>${escapeHtml(s.name)} <span class="muted" style="font-size:16px">${escapeHtml(s.spareNo)}</span>
+      ${s.active === false ? '<span class="tag tag-off">停用</span>' : ''}</h2>
+    <div class="sp-stock${isLow(s) ? ' is-low' : ''}"><b>${s.stockQty ?? 0}</b><span>${escapeHtml(s.unit || '')}　安全庫存 ${s.safetyStock ?? 0}${isLow(s) ? '　<span class="sp-low">要補貨</span>' : ''}</span></div>
+    ${ops}
+    <dl class="sp-kv">
+      <dt>規格</dt><dd>${escapeHtml(s.spec) || '—'}</dd>
+      <dt>適用機型</dt><dd>${escapeHtml(fitText(s.fitKeys))}</dd>
+      <dt>存放位置</dt><dd>${escapeHtml(s.location) || '—'}</dd>
+      <dt>ERP 料號</dt><dd>${escapeHtml(s.erpPartNo) || '—'}</dd>
+      <dt>原廠料號</dt><dd>${escapeHtml(s.makerPartNo) || '—'}</dd>
+      <dt>分類</dt><dd>${escapeHtml(CAT_LABEL[s.category] || s.category || '')}</dd>
+      ${canSee ? `<dt class="sp-cost">單價</dt><dd class="sp-cost">${c.unitPrice != null ? `${escapeHtml(money(c.unitPrice))} 元` : '—'}</dd>
+      <dt class="sp-cost">供應商</dt><dd class="sp-cost">${escapeHtml(c.supplier || '') || '—'}</dd>` : ''}
+      <dt>備註</dt><dd>${escapeHtml(s.note) || '—'}</dd>
+    </dl>
+    <h3 class="sp-sec">最近 10 筆進出</h3>
+    <ul id="dt-recent" class="sp-recent">${loadRecent ? '<li class="muted">讀取中…</li>' : (prev || '')}</ul>`;
+  $('dt-edit').hidden = !isAdmin();
+  if (loadRecent || s.lastMoveId !== $('dlg-detail').dataset.lastMove) loadRecentMoves(s);
+}
+
+async function loadRecentMoves(s) {
+  $('dlg-detail').dataset.lastMove = s.lastMoveId || '';
+  try {
+    const snap = await getDocs(query(collection(db, 'spareMoves'), where('spareNo', '==', s.spareNo), orderBy('createdAt', 'desc'), limit(10)));
+    if (current !== s.spareNo || !$('dt-recent')) return;
+    const list = snap.docs.map((d) => d.data());
+    $('dt-recent').innerHTML = list.length ? list.map(moveLine).join('') : '<li class="muted">還沒有進出紀錄</li>';
+  } catch (err) {
+    if (!$('dt-recent')) return;
+    const link = String(err?.message || '').match(/https:\/\/console\.firebase\.google\.com\S+/);
+    $('dt-recent').innerHTML = `<li class="form-error">讀不到進出紀錄：${escapeHtml(errorMessage(err))}</li>`
+      + (link && isAdmin() ? `<li><a class="btn" href="${escapeHtml(link[0])}" target="_blank" rel="noopener">打開 Firebase 建立索引</a>（建好約幾分鐘後重新整理）</li>` : '');
+  }
+}
+
+function signedQty(m) {
+  if (m.moveType === 'out') return `−${m.qty}`;
+  if (m.moveType === 'in') return `＋${m.qty}`;
+  return m.qty > 0 ? `＋${m.qty}` : (m.qty < 0 ? `−${-m.qty}` : '±0');
+}
+const moveCls = (t) => ({ in: 'mv-in', out: 'mv-out', adjust: 'mv-adj' }[t] || '');
+function moveLine(m) {
+  return `<li><span class="${moveCls(m.moveType)}">${MOVE_LABEL[m.moveType] || m.moveType} ${signedQty(m)}</span>
+    （${m.fromQty}→${m.toQty}）${m.machineId ? ` ${escapeHtml(m.machineId)}` : ''}${m.note ? `　${escapeHtml(m.note)}` : ''}
+    <br><span class="muted">${escapeHtml(formatTime(m.createdAt))}　${escapeHtml(m.createdByName || '')}</span></li>`;
+}
+
+// ============================================================
+// 領用／入庫／盤點
+// ============================================================
+$('dt-body').addEventListener('click', (event) => {
+  const b = event.target.closest('[data-op]');
+  if (b) openMove(b.dataset.op);
+});
+
+function openMove(type) {
+  const s = spares.get(current);
+  if (!s) return;
+  moveType = type;
+  $('md-title').textContent = `${MOVE_LABEL[type]}：${s.name}`;
+  $('md-sub').textContent = `${s.spareNo}　目前庫存 ${s.stockQty ?? 0} ${s.unit || ''}`;
+  $('md-qty-label').textContent = type === 'adjust' ? '實際點到的數量' : `${MOVE_LABEL[type]}數量`;
+  $('md-qty').value = type === 'adjust' ? String(s.stockQty ?? 0) : '1';
+  $('md-machine-box').hidden = type !== 'out';
+  $('md-machine').value = type === 'out' ? MID : '';
+  $('md-note-label').textContent = type === 'adjust' ? '差異原因（必填，例：盤點、期初）' : (type === 'in' ? '備註（例：請購單號）' : '備註（例：報修單、更換原因）');
+  $('md-note').value = '';
+  $('md-error').textContent = '';
+  $('md-save').textContent = `確定${MOVE_LABEL[type]}`;
+  updateMoveCalc();
+  $('dlg-move').showModal();
+  $('md-qty').select();
+}
+
+function updateMoveCalc() {
+  const s = spares.get(current);
+  if (!s) return;
+  const n = Number($('md-qty').value);
+  const cur = s.stockQty ?? 0;
+  let text = '';
+  if (Number.isInteger(n)) {
+    if (moveType === 'out') text = `領用後剩 ${cur - n}`;
+    if (moveType === 'in') text = `入庫後 ${cur + n}`;
+    if (moveType === 'adjust') text = n === cur ? '跟系統一樣（差異 0，也會記一筆盤點）' : `差異 ${n - cur > 0 ? '＋' : '−'}${Math.abs(n - cur)}`;
+  }
+  $('md-calc').textContent = text;
+  // 領用：適用機型沒有這台時提醒（不擋）
+  const warn = $('md-fitwarn');
+  warn.hidden = true;
+  if (moveType === 'out') {
+    const id = $('md-machine').value.trim().toUpperCase();
+    const m = machines.find((x) => x.machineId === id);
+    if (m && !fitsMachine(s, m)) {
+      warn.hidden = false;
+      warn.textContent = `注意：這項備品的適用機型沒有 ${m.machineId}（${m.brand} ${m.model}）。確定沒拿錯再按「確定領用」。`;
+    }
+  }
+}
+$('md-qty').addEventListener('input', updateMoveCalc);
+$('md-machine').addEventListener('input', updateMoveCalc);
+$('md-cancel').addEventListener('click', () => $('dlg-move').close());
+
+$('mv-dlg-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const s = spares.get(current);
+  const fail = (msg) => { $('md-error').textContent = msg; };
+  if (!s) return fail('找不到這項備品');
+  const n = Number($('md-qty').value);
+  const note = $('md-note').value.trim();
+  const machineId = $('md-machine').value.trim().toUpperCase();
+  if (!Number.isInteger(n) || n < 0 || n > 99999) return fail('數量要填 0～99999 的整數');
+  if (moveType !== 'adjust' && n < 1) return fail('數量至少 1');
+  if (moveType === 'out') {
+    if (!machineId) return fail('請填用在哪台機');
+    if (!machines.some((m) => m.machineId === machineId)) return fail(`設備主檔沒有 ${machineId}（或已不使用）`);
+  }
+  if (moveType === 'adjust' && note.length < 2) return fail('請填差異原因（至少 2 個字）');
+  const { prodDate, shiftId } = prodDateAndShift(new Date(), shiftSetting);
+  if (!shiftId) return fail('班別設定讀不到，請重新整理再試');
+  fail('');
+  setBusy($('md-save'), true, '儲存中…');
+  try {
+    // 一定跟資料庫要最新的庫存（連不上就失敗，不用這台裝置上的舊資料）
+    const fresh = await getDocFromServer(doc(db, 'spareParts', s.spareNo));
+    if (!fresh.exists()) return fail('這項備品不在資料庫裡');
+    const cur = fresh.data().stockQty ?? 0;
+    let qty = n; let toQty;
+    if (moveType === 'out') toQty = cur - n;
+    else if (moveType === 'in') toQty = cur + n;
+    else { toQty = n; qty = n - cur; }
+    if (toQty < 0) return fail(`庫存只剩 ${cur}，不能領 ${n}。帳實不符請找管理者盤點。`);
+    if (toQty > 99999) return fail('庫存最多 99999');
+    const ref = doc(collection(db, 'spareMoves'));
+    const batch = writeBatch(db);
+    batch.set(ref, {
+      moveType, spareNo: s.spareNo, deptId: fresh.data().deptId,
+      qty, fromQty: cur, toQty,
+      machineId: moveType === 'out' ? machineId : '',
+      repairId: null,                 // 預留給功能㉔（報修單換零件）
+      note, prodDate, shiftId,
+      createdAt: serverTimestamp(), createdByEmpNo: myEmpNo(), createdByName: me.name
+    });
+    batch.set(doc(db, 'spareParts', s.spareNo), { stockQty: toQty, lastMoveId: ref.id }, { merge: true });
+    await withTimeout(batch.commit());
+    $('dlg-move').close();
+    toast(`已${MOVE_LABEL[moveType]}：${s.name} ${signedQty({ moveType, qty })}，庫存 ${toQty}`);
+  } catch (err) {
+    fail(err?.code === 'permission-denied'
+      ? '存不進去：可能剛好有人同時改了庫存，或你沒有權限。請關掉視窗再試一次。'
+      : errorMessage(err));
+  } finally {
+    setBusy($('md-save'), false);
+  }
+});
+
+// ============================================================
+// 新增／編輯（管理者）
+// ============================================================
+$('btn-add').addEventListener('click', () => openEdit(null));
+$('ed-cancel').addEventListener('click', () => $('dlg-edit').close());
+
+function renderFitChoices(selected) {
+  const sel = new Set(selected);
+  const list = brandModels();
+  const known = new Set(['*']);
+  let html = `<label class="check"><input type="checkbox" value="*"${sel.has('*') ? ' checked' : ''}> 通用（所有機台都能用）</label>`;
+  list.forEach(([brand, models]) => {
+    known.add(`${brand}/*`);
+    html += `<div class="fit-brand"><label class="check"><input type="checkbox" value="${escapeHtml(`${brand}/*`)}"${sel.has(`${brand}/*`) ? ' checked' : ''}> ${escapeHtml(brand)} 全部機型</label></div>
+      <div class="fit-models">${models.map((m) => { known.add(`${brand}/${m}`); return `<label class="check"><input type="checkbox" value="${escapeHtml(`${brand}/${m}`)}"${sel.has(`${brand}/${m}`) ? ' checked' : ''}> ${escapeHtml(m)}</label>`; }).join('')}</div>`;
+  });
+  $('ed-fit').innerHTML = html;
+  // 主檔沒有的（例：還沒進廠的機型）放到下面的文字框
+  return selected.filter((k) => !known.has(k));
+}
+
+function openEdit(no) {
+  const s = no ? spares.get(no) : null;
+  editing = s ? s.spareNo : null;
+  const c = s ? (costs.get(s.spareNo) || {}) : {};
+  $('ed-title').textContent = s ? `編輯 ${s.spareNo}` : '新增備品';
+  $('ed-no').value = s ? s.spareNo : '';
+  $('ed-no').disabled = !!s;
+  $('ed-no').placeholder = s ? '' : `空白＝${nextSpareNo()}`;
+  $('ed-erp').value = s?.erpPartNo || '';
+  $('ed-name').value = s?.name || '';
+  $('ed-spec').value = s?.spec || '';
+  $('ed-maker').value = s?.makerPartNo || '';
+  $('ed-cat').value = s?.category || 'other';
+  const extra = renderFitChoices(s?.fitKeys || []);
+  $('ed-fit-extra').value = extra.map(fitLabel).join('；');
+  $('ed-unit').value = s?.unit || '個';
+  $('ed-safety').value = String(s?.safetyStock ?? 0);
+  $('ed-loc').value = s?.location || '';
+  $('ed-open-box').hidden = !!s;
+  $('ed-open').value = '0';
+  $('ed-dept').value = s?.deptId || depts[0]?.id || '';
+  $('ed-note').value = s?.note || '';
+  $('ed-active-box').hidden = !s;
+  $('ed-active').checked = s ? s.active !== false : true;
+  $('ed-price').value = c.unitPrice != null ? String(c.unitPrice) : '';
+  $('ed-supplier').value = c.supplier || '';
+  $('ed-info').textContent = s
+    ? `目前庫存 ${s.stockQty ?? 0}（要改請用盤點）\n最後更新：${formatTime(s.updatedAt)}${s.updatedByEmpNo ? `（${s.updatedByEmpNo}）` : ''}`
+    : '';
+  $('ed-error').textContent = '';
+  $('dlg-edit').showModal();
+  (s ? $('ed-name') : $('ed-no')).focus();
+}
+
+// 表單 → 主檔資料（不含庫存）；有錯回傳 { error }
+function readEditForm() {
+  const name = $('ed-name').value.trim();
+  if (!name) return { error: '請填品名' };
+  const fit = [...$('ed-fit').querySelectorAll('input:checked')].map((i) => i.value);
+  const extra = parseFitList($('ed-fit-extra').value);
+  if (extra.errors.length) return { error: extra.errors[0] };
+  extra.keys.forEach((k) => { if (!fit.includes(k)) fit.push(k); });
+  if (fit.length === 0) return { error: '請勾適用機型（所有機台都能用就勾「通用」）' };
+  if (fit.length > 40) return { error: '適用機型最多 40 個' };
+  const safety = Number($('ed-safety').value || 0);
+  if (!Number.isInteger(safety) || safety < 0 || safety > 99999) return { error: '安全庫存要填 0～99999 的整數' };
+  const unit = $('ed-unit').value.trim() || '個';
+  const priceText = $('ed-price').value.trim();
+  const price = priceText === '' ? null : Number(priceText);
+  if (price !== null && (!Number.isFinite(price) || price < 0 || price > 10000000)) return { error: '單價要填 0～10,000,000 的數字' };
+  return {
+    data: {
+      deptId: $('ed-dept').value || depts[0]?.id || '',
+      erpPartNo: $('ed-erp').value.trim(), name, spec: $('ed-spec').value.trim(),
+      makerPartNo: $('ed-maker').value.trim(), category: $('ed-cat').value, fitKeys: fit,
+      unit, location: $('ed-loc').value.trim(), safetyStock: safety,
+      note: $('ed-note').value.trim(), active: editing ? $('ed-active').checked : true
+    },
+    cost: { unitPrice: price, supplier: $('ed-supplier').value.trim() },
+    warnings: extra.warnings
+  };
+}
+
+$('ed-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const fail = (msg) => { $('ed-error').textContent = msg; };
+  const f = readEditForm();
+  if (f.error) return fail(f.error);
+  let no = editing;
+  if (!no) {
+    no = $('ed-no').value.trim().toUpperCase() || nextSpareNo();
+    if (!SPARENO_PATTERN.test(no)) return fail('備品編號是英文大寫、數字和「-」，2～20 碼');
+    if (spares.has(no)) return fail(`備品編號 ${no} 已經有了`);
+  }
+  const opening = editing ? 0 : Number($('ed-open').value || 0);
+  if (!Number.isInteger(opening) || opening < 0 || opening > 99999) return fail('期初庫存要填 0～99999 的整數');
+  fail('');
+  setBusy($('ed-save'), true, '儲存中…');
+  try {
+    const result = await writeSpare(no, f.data, f.cost, { isNew: !editing, opening, note: '期初庫存' });
+    $('dlg-edit').close();
+    toast(result.isNew ? `已新增 ${no} ${f.data.name}` : `已儲存 ${no} ${f.data.name}`);
+    if (f.warnings.length) toast(`${f.warnings.join('；')}（已照填的存）`);
+  } catch (err) {
+    fail(err.message && !err.code ? err.message : errorMessage(err));
+  } finally {
+    setBusy($('ed-save'), false);
+  }
+});
+
+// 寫一項備品（新增或修改）＋單價（有變才寫）＋期初庫存（新增而且 > 0 才寫一筆盤點）
+//   修改時先跟資料庫要最新的庫存，原樣帶回去（庫存只能用進出紀錄改）
+async function writeSpare(no, data, cost, { isNew, opening = 0, note = '期初庫存' }) {
+  const ref = doc(db, 'spareParts', no);
+  const fresh = await getDocFromServer(ref);
+  if (isNew && fresh.exists()) throw new Error(`備品編號 ${no} 已經有了`);
+  if (!isNew && !fresh.exists()) throw new Error(`資料庫裡沒有 ${no}`);
+  const batch = writeBatch(db);
+  let stockQty = isNew ? 0 : (fresh.data().stockQty ?? 0);
+  let lastMoveId = isNew ? '' : (fresh.data().lastMoveId ?? '');
+  if (isNew && opening > 0) {
+    const { prodDate, shiftId } = prodDateAndShift(new Date(), shiftSetting);
+    const mref = doc(collection(db, 'spareMoves'));
+    batch.set(mref, {
+      moveType: 'adjust', spareNo: no, deptId: data.deptId, qty: opening, fromQty: 0, toQty: opening,
+      machineId: '', repairId: null, note, prodDate, shiftId,
+      createdAt: serverTimestamp(), createdByEmpNo: myEmpNo(), createdByName: me.name
+    });
+    stockQty = opening; lastMoveId = mref.id;
+  }
+  batch.set(ref, {
+    spareNo: no, ...data, stockQty, lastMoveId,
+    updatedAt: serverTimestamp(), updatedByEmpNo: myEmpNo()
+  });
+  const old = costs.get(no) || { unitPrice: null, supplier: '' };
+  const costChanged = cost && ((old.unitPrice ?? null) !== (cost.unitPrice ?? null) || (old.supplier || '') !== (cost.supplier || ''));
+  if (costChanged) {
+    batch.set(doc(db, 'spareCosts', no), {
+      spareNo: no, unitPrice: cost.unitPrice ?? null, supplier: cost.supplier || '',
+      updatedAt: serverTimestamp(), updatedByEmpNo: myEmpNo()
+    });
+  }
+  await withTimeout(batch.commit());
+  if (costChanged) costs.set(no, { unitPrice: cost.unitPrice ?? null, supplier: cost.supplier || '' });
+  return { isNew };
+}
+
+// ============================================================
+// 異動紀錄
+// ============================================================
+const prodStartMs = (ymd) => Date.parse(`${ymd}T00:00:00Z`) - TZ_OFFSET + 8 * 3600000;   // 生產日 08:00（台灣）
+
+$('mv-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const from = $('mv-from').value; const to = $('mv-to').value;
+  $('mv-err').hidden = true;
+  const err = (msg) => { $('mv-err').hidden = false; $('mv-err').textContent = msg; };
+  if (!from || !to) return err('請選起日和迄日');
+  if (from > to) return err('起日不能晚於迄日');
+  const days = (Date.parse(to) - Date.parse(from)) / DAY + 1;
+  if (days > MV_MAX_DAYS) return err(`一次最多查 ${MV_MAX_DAYS} 天`);
+  setBusy($('mv-go'), true, '查詢中…');
+  try {
+    const snap = await getDocs(query(collection(db, 'spareMoves'),
+      where('createdAt', '>=', Timestamp.fromMillis(prodStartMs(from))),
+      where('createdAt', '<', Timestamp.fromMillis(prodStartMs(to) + DAY)),
+      orderBy('createdAt', 'desc'), limit(MV_LIMIT)));
+    mv.rows = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+    mv.label = `${from}_${to}`;
+    mv.full = snap.docs.length >= MV_LIMIT;
+    renderMoves();
+  } catch (e) {
+    err(errorMessage(e));
+  } finally {
+    setBusy($('mv-go'), false);
+  }
+});
+$('mv-type').addEventListener('change', () => { if (mv.label) renderMoves(); });
+$('mv-key').addEventListener('input', () => { if (mv.label) renderMoves(); });
+
+function movesFiltered() {
+  const type = $('mv-type').value;
+  const key = $('mv-key').value.trim().toUpperCase();
+  return mv.rows.filter((m) => (!type || m.moveType === type) && (!key || m.spareNo === key || m.machineId === key));
+}
+function renderMoves() {
+  const list = movesFiltered();
+  $('mv-result').hidden = false;
+  $('mv-csv').hidden = !(me.role === 'admin' || me.role === 'maintainer');
+  $('mv-sum').textContent = `${list.length} 筆${mv.full ? `（只讀了最新 ${MV_LIMIT} 筆，請縮短日期）` : ''}`;
+  $('mv-rows').innerHTML = list.map((m) => `<tr>
+    <td>${escapeHtml(formatTime(m.createdAt))}</td><td class="sm-hide">${escapeHtml(shiftName(m.shiftId))}</td>
+    <td class="${moveCls(m.moveType)}">${MOVE_LABEL[m.moveType] || escapeHtml(m.moveType)}</td>
+    <td class="col-id">${escapeHtml(m.spareNo)}</td><td>${escapeHtml(spares.get(m.spareNo)?.name || '')}</td>
+    <td class="col-num">${signedQty(m)}</td><td class="col-num sm-hide">${m.fromQty}→${m.toQty}</td>
+    <td>${escapeHtml(m.machineId || '')}</td><td class="col-wide">${escapeHtml(m.note || '')}</td><td>${escapeHtml(m.createdByName || '')}</td></tr>`).join('');
+  $('mv-empty').hidden = list.length > 0;
+}
+const shiftName = (id) => shiftSetting?.shifts?.find((s) => s.id === id)?.name || id || '';
+
+$('mv-csv').addEventListener('click', () => {
+  const head = ['時間', '生產日', '班別', '類型', '備品編號', '品名', '數量', '改前', '改後', '設備編號', '備註', '工號', '姓名'];
+  const rows = movesFiltered().map((m) => [formatTime(m.createdAt), m.prodDate, shiftName(m.shiftId), MOVE_LABEL[m.moveType] || m.moveType,
+    m.spareNo, spares.get(m.spareNo)?.name || '', m.moveType === 'out' ? -m.qty : m.qty, m.fromQty, m.toQty,
+    m.machineId || '', m.note || '', m.createdByEmpNo || '', m.createdByName || '']);
+  downloadCsv([head, ...rows], `備品異動_${mv.label}.csv`);
+  toast(`已匯出 ${rows.length} 筆`);
+});
+
+// ============================================================
+// CSV 匯出、匯入
+// ============================================================
+
+function csvCell(value) {
+  let text = String(value ?? '');
+  if (/^[=+\-@\t\r]/.test(text) && !/^-?\d+(\.\d+)?$/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+function downloadCsv(rows, filename) {
+  const blob = new Blob(['﻿' + rows.map((r) => r.map(csvCell).join(',')).join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+// 清單匯出：跟匯入同一個格式（「期初庫存」換成「目前庫存」，匯入時不會拿來改庫存），可以改完再匯入
+$('btn-csv').addEventListener('click', () => {
+  const head = ['備品編號', 'ERP料號', '品名', '規格', '原廠料號', '分類', '適用機型', '單位', '存放位置', '安全庫存', '目前庫存',
+    ...(canSee ? ['單價', '供應商'] : []), '備註', '使用中'];
+  const rows = filtered().map((s) => {
+    const c = costs.get(s.spareNo) || {};
+    return [s.spareNo, s.erpPartNo, s.name, s.spec, s.makerPartNo, CAT_LABEL[s.category] || s.category,
+      (s.fitKeys || []).map(fitLabel).join('；'), s.unit, s.location, s.safetyStock, s.stockQty,
+      ...(canSee ? [c.unitPrice ?? '', c.supplier || ''] : []), s.note, s.active === false ? '否' : '是'];
+  });
+  const today = prodDateAndShift(new Date(), shiftSetting).prodDate;
+  downloadCsv([head, ...rows], `備品清單_${today}.csv`);
+  toast(`已匯出 ${rows.length} 項`);
+});
+$('imp-template').addEventListener('click', () => {
+  downloadCsv([IMPORT_HEADERS, ['', '', '近接開關', 'PNP 常開 M12', '', '電氣', 'Brother 全部；森合 TR-60A', '個', '2廠2F 維修室 B櫃', '2', '5', '350', '', '範例，匯入前刪掉這一行']], '備品匯入範本.csv');
+});
+
+// 檔案內容轉文字：先當 UTF-8；不是的話多半是 Windows Excel 存的（Big5）（跟匯入設備一樣）
+function decodeCsv(buffer) {
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(buffer); } catch { /* 往下試 Big5 */ }
+  try { return new TextDecoder('big5').decode(buffer); } catch { return null; }
+}
+function parseCsv(text) {
+  const clean = text.replace(/^﻿/, '');
+  const firstLine = clean.split(/\r?\n/, 1)[0] || '';
+  const sep = !firstLine.includes(',') && firstLine.includes('\t') ? '\t' : ',';
+  const rows = []; let row = []; let cell = ''; let quoted = false;
+  for (let i = 0; i < clean.length; i += 1) {
+    const c = clean[i];
+    if (quoted) {
+      if (c === '"' && clean[i + 1] === '"') { cell += '"'; i += 1; } else if (c === '"') quoted = false; else cell += c;
+    } else if (c === '"' && cell === '') quoted = true;
+    else if (c === sep) { row.push(cell); cell = ''; }
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && clean[i + 1] === '\n') i += 1;
+      row.push(cell); rows.push(row); row = []; cell = '';
+    } else cell += c;
+  }
+  if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+  return rows.filter((r) => r.some((v) => String(v).trim() !== ''));
+}
+
+let importTable = null;
+let importFile = '';
+let importPlan = null;
+let importing = false;
+
+$('imp-file').addEventListener('change', async () => {
+  const file = $('imp-file').files[0];
+  importPlan = null;
+  if (!file) { $('imp-out').innerHTML = ''; return; }
+  if (file.size > 2 * 1024 * 1024) { $('imp-out').innerHTML = '<div class="sp-err">檔案太大（超過 2 MB），是不是選錯檔？</div>'; return; }
+  const text = decodeCsv(await file.arrayBuffer());
+  if (text == null) { $('imp-out').innerHTML = '<div class="sp-err">讀不懂這個檔案，請用 Excel 另存「CSV UTF-8」</div>'; return; }
+  importTable = parseCsv(text);
+  importFile = file.name;
+  showPlan();
+});
+
+const NUM = (v) => String(v ?? '').trim().replace(/,/g, '');
+function parseIntCell(v) { const t = NUM(v); if (t === '') return null; const n = Number(t); return Number.isInteger(n) ? n : NaN; }
+function parseNumCell(v) { const t = NUM(v).replace(/^\$|元$/g, ''); if (t === '') return null; const n = Number(t); return Number.isFinite(n) ? n : NaN; }
+
+// 檢查檔案內容，算出要寫什麼（不寫資料庫）
+function buildImportPlan(table) {
+  const plan = { creates: [], updates: [], unchanged: 0, errors: [], warnings: [], rowCount: 0 };
+  const header = (table[0] || []).map((h) => String(h ?? '').replace(/^﻿/, '').trim());
+  const col = (label) => header.indexOf(label);
+  if (col('品名') < 0 && col('備品編號') < 0) { plan.errors.push('第 1 行找不到「備品編號」或「品名」欄位，請確認欄位名稱跟範本一樣'); return plan; }
+  const get = (row, label) => { const i = col(label); return i < 0 ? '' : String(row[i] ?? '').trim(); };
+  const has = (label) => col(label) >= 0;
+  const catByLabel = Object.fromEntries(CATEGORIES.map(([c, l]) => [l, c]));
+  const reserved = new Set();
+  const seen = new Set();
+  const rows = table.slice(1);
+  if (rows.length > 2000) { plan.errors.push('一次最多 2,000 行'); return plan; }
+  rows.forEach((row, i) => {
+    const line = i + 2;
+    const err = (msg) => plan.errors.push(`第 ${line} 行：${msg}`);
+    plan.rowCount += 1;
+    let no = get(row, '備品編號').toUpperCase();
+    const name = get(row, '品名');
+    const spec = get(row, '規格');
+    const erp = get(row, 'ERP料號');
+    let existing = no ? spares.get(no) : null;
+    if (!no && name) {
+      existing = [...spares.values()].find((s) => s.name === name && (s.spec || '') === spec && (s.erpPartNo || '') === erp) || null;
+      if (existing) no = existing.spareNo;
+    }
+    if (no && !SPARENO_PATTERN.test(no)) return err(`備品編號「${no}」格式不對（英文大寫、數字和「-」，2～20 碼）`);
+    if (no && seen.has(no)) return err(`備品編號 ${no} 在檔案裡重複`);
+    if (!existing && !name) return err('新的備品一定要有品名');
+    if (name.length > 40) return err('品名最多 40 字');
+    if (spec.length > 100) return err('規格最多 100 字');
+    if (erp.length > 40) return err('ERP料號最多 40 字');
+    const maker = get(row, '原廠料號'); if (maker.length > 40) return err('原廠料號最多 40 字');
+    const catText = get(row, '分類');
+    const category = catText ? catByLabel[catText] : null;
+    if (catText && !category) return err(`分類「${catText}」要是：${CATEGORIES.map(([, l]) => l).join('、')}`);
+    const fitText0 = get(row, '適用機型');
+    const fit = parseFitList(fitText0);
+    if (fit.errors.length) return err(fit.errors.join('；'));
+    if (!existing && fit.keys.length === 0) return err('適用機型空白（所有機台都能用請填「通用」）');
+    if (fit.keys.length > 40) return err('適用機型最多 40 個');
+    fit.warnings.forEach((w) => plan.warnings.push(`第 ${line} 行：${w}（照填的存）`));
+    const unit = get(row, '單位'); if (unit.length > 10) return err('單位最多 10 字');
+    const loc = get(row, '存放位置'); if (loc.length > 40) return err('存放位置最多 40 字');
+    const note = get(row, '備註'); if (note.length > 100) return err('備註最多 100 字');
+    const safety = parseIntCell(get(row, '安全庫存'));
+    if (Number.isNaN(safety) || (safety != null && (safety < 0 || safety > 99999))) return err('安全庫存要填 0～99999 的整數');
+    const opening = parseIntCell(get(row, '期初庫存'));
+    if (Number.isNaN(opening) || (opening != null && (opening < 0 || opening > 99999))) return err('期初庫存要填 0～99999 的整數');
+    const price = parseNumCell(get(row, '單價'));
+    if (Number.isNaN(price) || (price != null && (price < 0 || price > 10000000))) return err('單價要填 0～10,000,000 的數字');
+    const supplier = get(row, '供應商'); if (supplier.length > 40) return err('供應商最多 40 字');
+    const activeText = get(row, '使用中');
+    let active = null;
+    if (activeText) {
+      if (['是', 'Y', 'YES', '1', '使用中'].includes(activeText.toUpperCase())) active = true;
+      else if (['否', 'N', 'NO', '0', '停用', '不使用'].includes(activeText.toUpperCase())) active = false;
+      else return err(`使用中要填「是」或「否」`);
+    }
+    if (!no) { no = nextSpareNo(reserved); reserved.add(no); }
+    seen.add(no);
+    const pick = (v, old) => (v === '' || v == null ? old : v);
+    const oldCost = costs.get(no) || { unitPrice: null, supplier: '' };
+    const cost = { unitPrice: price != null ? price : (oldCost.unitPrice ?? null), supplier: supplier || oldCost.supplier || '' };
+    if (existing) {
+      const data = {
+        deptId: existing.deptId, erpPartNo: pick(erp, existing.erpPartNo || ''), name: pick(name, existing.name),
+        spec: pick(spec, existing.spec || ''), makerPartNo: pick(maker, existing.makerPartNo || ''),
+        category: category || existing.category, fitKeys: fit.keys.length ? fit.keys : existing.fitKeys,
+        unit: pick(unit, existing.unit), location: pick(loc, existing.location || ''),
+        safetyStock: safety != null ? safety : existing.safetyStock, note: pick(note, existing.note || ''),
+        active: active != null ? active : existing.active !== false
+      };
+      const changed = Object.keys(data).filter((k) => JSON.stringify(data[k]) !== JSON.stringify(k === 'active' ? existing.active !== false : (existing[k] ?? '')));
+      const costChanged = (oldCost.unitPrice ?? null) !== cost.unitPrice || (oldCost.supplier || '') !== cost.supplier;
+      if (opening != null && has('期初庫存') && opening !== (existing.stockQty ?? 0)) plan.warnings.push(`第 ${line} 行：${no} 已經有了，期初庫存不會改庫存（目前 ${existing.stockQty ?? 0}，要改請用盤點）`);
+      if (changed.length || costChanged) plan.updates.push({ no, data, cost, line, changed: [...changed, ...(costChanged ? ['單價／供應商'] : [])] });
+      else plan.unchanged += 1;
+    } else {
+      plan.creates.push({
+        no, line, opening: opening || 0,
+        data: {
+          deptId: depts[0]?.id || '', erpPartNo: erp, name, spec, makerPartNo: maker, category: category || 'other',
+          fitKeys: fit.keys, unit: unit || '個', location: loc, safetyStock: safety ?? 0, note, active: active != null ? active : true
+        },
+        cost: (price != null || supplier) ? cost : null
+      });
+    }
+  });
+  if (!depts.length) plan.errors.push('還沒有單位資料');
+  return plan;
+}
+
+const FIELD_LABEL = { erpPartNo: 'ERP料號', name: '品名', spec: '規格', makerPartNo: '原廠料號', category: '分類', fitKeys: '適用機型',
+  unit: '單位', location: '存放位置', safetyStock: '安全庫存', note: '備註', active: '使用中', deptId: '單位' };
+
+function showPlan() {
+  if (!importTable) return;
+  importPlan = buildImportPlan(importTable);
+  const p = importPlan;
+  const list = (items) => `<ul>${items.slice(0, 30).map((x) => `<li>${escapeHtml(x)}</li>`).join('')}${items.length > 30 ? `<li>…還有 ${items.length - 30} 項</li>` : ''}</ul>`;
+  let html = `<div class="sp-box"><b>${escapeHtml(importFile)}</b>：${p.rowCount} 行 → 新增 ${p.creates.length} 項、修改 ${p.updates.length} 項、沒變 ${p.unchanged} 項</div>`;
+  if (p.errors.length) html += `<div class="sp-err">有 ${p.errors.length} 個錯誤，整批不會寫入，請改好再選一次檔案：${list(p.errors)}</div>`;
+  if (p.warnings.length) html += `<div class="sp-warn">提醒 ${p.warnings.length} 項（不擋匯入）：${list(p.warnings)}</div>`;
+  if (!p.errors.length && (p.creates.length || p.updates.length)) {
+    html += `<div class="sp-wrap" style="min-height:0;max-height:360px"><table class="sp-table"><thead><tr><th>動作</th><th class="col-id">備品編號</th><th>品名</th><th>適用機型</th><th class="col-num">期初庫存</th><th>修改的欄位</th></tr></thead><tbody>
+      ${p.creates.map((c) => `<tr><td>新增</td><td class="col-id">${escapeHtml(c.no)}</td><td>${escapeHtml(c.data.name)}</td><td>${escapeHtml(fitText(c.data.fitKeys))}</td><td class="col-num">${c.opening}</td><td></td></tr>`).join('')}
+      ${p.updates.map((u) => `<tr><td>修改</td><td class="col-id">${escapeHtml(u.no)}</td><td>${escapeHtml(u.data.name)}</td><td>${escapeHtml(fitText(u.data.fitKeys))}</td><td></td><td>${escapeHtml(u.changed.map((k) => FIELD_LABEL[k] || k).join('、'))}</td></tr>`).join('')}
+    </tbody></table></div>
+    <p class="muted">每項寫 1～3 次（備品＋期初庫存紀錄＋單價），共約 ${p.creates.length * 2 + p.updates.length} 次寫入。中途斷線再按一次「確定匯入」會從沒寫的接著做。</p>
+    <div class="row-actions"><button id="imp-go" class="btn primary" type="button">確定匯入</button></div>
+    <p id="imp-progress" class="sp-sum-text"></p>`;
+  } else if (!p.errors.length) {
+    html += '<p class="muted">沒有要寫入的資料。</p>';
+  }
+  $('imp-out').innerHTML = html;
+}
+
+$('imp-out').addEventListener('click', async (event) => {
+  if (!event.target.closest('#imp-go') || importing) return;
+  showPlan();                     // 用最新的資料庫內容再檢查一次（中途斷線接著做時，已寫的會變成「沒變」）
+  const p = importPlan;
+  if (!p || p.errors.length) return;
+  const items = [...p.creates.map((c) => ({ ...c, isNew: true })), ...p.updates.map((u) => ({ ...u, isNew: false }))];
+  if (!items.length) return;
+  const btn = $('imp-go');
+  importing = true;
+  setBusy(btn, true, '匯入中…');
+  let done = 0;
+  try {
+    for (const it of items) {
+      $('imp-progress').textContent = `寫入中 ${done + 1} / ${items.length}：${it.no}`;
+      await writeSpare(it.no, it.data, it.cost, { isNew: it.isNew, opening: it.opening || 0, note: '期初庫存（匯入）' });
+      done += 1;
+    }
+    $('imp-progress').textContent = `完成：${done} 項`;
+    toast(`匯入完成：${done} 項`);
+    importTable = null;
+    $('imp-file').value = '';
+  } catch (err) {
+    $('imp-progress').textContent = `寫到第 ${done + 1} 項（${items[done]?.no}）失敗：${err.message && !err.code ? err.message : errorMessage(err)}。已寫入 ${done} 項；網路好了再按一次「確定匯入」會從沒寫的接著做。`;
+  } finally {
+    importing = false;
+    if ($('imp-go')) setBusy($('imp-go'), false);
+  }
+});
+</script>
+</body>
+</html>

@@ -74,6 +74,11 @@
         <input id="f-mustpw" type="checkbox">
         <span>第一次登入要改密碼（本人改好後會自動取消）</span>
       </label>
+      <!-- 功能㉓：看得到備品單價、供應商（給組長以上；管理者一律看得到） -->
+      <label class="check" id="f-cost-box">
+        <input id="f-cost" type="checkbox">
+        <span>看得到備品單價、供應商（組長以上；管理者一律看得到）</span>
+      </label>
       <!-- 既有人員才顯示：忘記密碼時，在主控台刪掉帳號後，用這個帳號重建 -->
       <div id="f-account" hidden>
         <p class="muted">登入帳號（忘記密碼時，在主控台刪掉後用同一個帳號重建）：</p>
@@ -101,6 +106,7 @@
 // 人員資料存在 users/{工號}；登入帳號要另外到 Firebase 主控台建立
 // 規則：不能刪除人員（離職改停用）、工號建立後不能改、
 //      管理者不能拿掉自己的權限或停用自己
+// 功能㉓：加「看得到備品單價、供應商」canSeeCost（舊資料沒有這個欄位＝看不到）
 // ============================================================
 import {
   db, collection, getDocs, doc, getDoc, setDoc, serverTimestamp,
@@ -165,7 +171,7 @@ function renderList() {
     <li>
       <button type="button" class="ledger-row${u.active === true ? '' : ' is-off'}" data-empno="${escapeHtml(u.empNo)}">
         <span class="col-empno">${escapeHtml(u.empNo)}</span>
-        <span class="col-name">${escapeHtml(u.name)}${u.mustChangePassword === true && u.active === true ? ' <span class="tag tag-off">待改密碼</span>' : ''}</span>
+        <span class="col-name">${escapeHtml(u.name)}${u.mustChangePassword === true && u.active === true ? ' <span class="tag tag-off">待改密碼</span>' : ''}${u.canSeeCost === true && u.role !== 'admin' ? ' <span class="tag">看單價</span>' : ''}</span>
         <span class="col-role">${escapeHtml(ROLE_LABELS[u.role] || u.role)}</span>
         <span class="col-dept">${escapeHtml(deptNames(u.deptIds))}</span>
         <span class="col-state"><span class="tag${u.active === true ? '' : ' tag-off'}">${u.active === true ? '在職' : '停用'}</span></span>
@@ -212,6 +218,7 @@ function openForm(empNo) {
   $('f-active').checked = user ? user.active === true : true;
   $('f-active').disabled = isSelf;                    // 不能停用自己
   $('f-mustpw').checked = user ? user.mustChangePassword === true : true;   // 功能⑰：新增時預設打勾
+  $('f-cost').checked = user ? user.canSeeCost === true : false;            // 功能㉓：預設不勾
 
   // 既有人員：顯示登入帳號
   $('f-account').hidden = !user;
@@ -243,6 +250,7 @@ $('user-form').addEventListener('submit', async (event) => {
   const deptIds = [...$('f-depts').querySelectorAll('input:checked')].map((i) => i.value);
   const active = $('f-active').checked;
   const mustChangePassword = $('f-mustpw').checked;
+  const canSeeCost = $('f-cost').checked;
   const fail = (message) => { $('f-error').textContent = message; };
 
   // 先在畫面上檢查，安全規則會再檢查一次
@@ -263,6 +271,7 @@ $('user-form').addEventListener('submit', async (event) => {
     await setDoc(ref, {
       empNo, name, role, deptIds, active,
       mustChangePassword,             // 功能⑰：第一次登入要改密碼
+      canSeeCost,                     // 功能㉓：看得到備品單價、供應商
       updatedAt: serverTimestamp(),   // 伺服器時間
       updatedByEmpNo: myEmpNo()       // 誰改的
     });

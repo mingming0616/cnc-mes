@@ -155,6 +155,8 @@ const MODULES = [
   { label: '設備清單與履歷', desc: '搜尋、篩選、匯出 CSV', href: 'list.html', roles: ALL_ROLES },
   // 功能㉑：報修單（還沒開放時只有管理者看得到，標「測試中」；開放後所有角色都看得到）
   { label: '報修單', desc: '報修、接單、維修完成、驗收', href: 'repairs.html', roles: ALL_ROLES, gate: 'repair' },
+  // 功能㉓：備品清單（不會改機台狀態，不用等切換上線）
+  { label: '備品清單', desc: '查位置、領用、入庫、盤點', href: 'spares.html', roles: ALL_ROLES },
   { label: '主檔維護', desc: '設備、樓層', href: 'master.html', roles: ['admin'] },
   { label: '人員管理', desc: '帳號、角色、負責單位', href: 'users.html', roles: ['admin'] }
 ];

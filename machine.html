@@ -53,6 +53,8 @@
     <p id="mc-readonly" class="mc-readonly" hidden></p>
 
     <button id="mc-history" class="btn block mc-history" type="button">異動履歷</button>
+    <!-- 功能㉓：只列這台機型用得到的備品 -->
+    <a id="mc-spares" class="btn block mc-history" href="spares.html">這台適用的備品</a>
 
     <!-- 之後各階段的現場動作（報工、首件巡檢、換刀保養）會加在這裡，貼紙不用換 -->
 
@@ -92,6 +94,7 @@ const $ = (id) => document.getElementById(id);
 // 設備編號：英文大寫、數字和「-」，2～12 碼，第一個字不能是「-」（跟主檔一樣）
 const CODE_PATTERN = /^[A-Z0-9][A-Z0-9-]{1,11}$/;
 const machineId = String(new URLSearchParams(location.search).get('machineId') || '').trim().toUpperCase();
+document.getElementById('mc-spares').href = `spares.html?machineId=${encodeURIComponent(machineId)}`;   // 功能㉓
 
 let me = null;            // 登入者的人員資料
 let machine = null;       // 這台設備的主檔
