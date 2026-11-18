@@ -279,7 +279,10 @@ export async function openRepairAction(kind, { ticket = null, machine = null } =
     title = `取消報修 ${mid}`;
     ok = '取消這張報修';
     body = '<label class="field"><span>為什麼取消（必填）</span><input id="rp-note" type="text" maxlength="100" placeholder="例：報錯機台、現場自己排除了"></label>'
-      + (ticket.stopped ? `<p class="muted">機台會改回報修前的狀態（${esc(statusText(dept, ticket.beforeStatus, ticket.beforeReasonCode) || '—')}）。</p>` : '')
+      + (!ticket.stopped ? ''
+        : !ticket.beforeStatus
+          ? '<p class="rp-warn">這台報修前是「未設定」（從來沒切過狀態），系統沒辦法改回去。取消後機台會留在「故障」，請到「切換狀態」改成正確的狀態。</p>'
+          : `<p class="muted">機台會改回報修前的狀態（${esc(statusText(dept, ticket.beforeStatus, ticket.beforeReasonCode))}）。</p>`)
       + '<p class="muted">取消的單不列入統計。</p>';
   } else if (kind === 'reassign') {
     title = `改派 ${mid}`;
@@ -430,7 +433,8 @@ async function submit(event) {
   } else if (kind === 'cancel') {
     const note = val('rp-note');
     if (note.length < 2) return fail('請寫取消原因（至少 2 個字）');
-    const back = ticket.stopped && ticket.beforeStatus && ticket.beforeStatus !== 'fault';
+    // 改回報修前的狀態：報修前本來就是故障也一樣（原因可能不同，改回原本的原因）；報修前是「未設定」就改不回去
+    const back = ticket.stopped && !!ticket.beforeStatus;
     plan = {
       update: {
         stage: 'cancelled',
