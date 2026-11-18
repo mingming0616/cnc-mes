@@ -18,6 +18,8 @@ CNC 精密零件代工廠銑床課自建的工廠製造管理執行系統（MES�
 | `machine.html` | 機台頁（掃 QR 進入） |
 | `labels.html` | QR 標籤列印 |
 | `list.html` | 設備清單與履歷（搜尋、篩選、匯出 CSV） |
+| `repairs.html` | 報修單（待接單／維修中／待驗收／已結案、維修設定） |
+| `repair.js` | 報修流程（機台頁、報修單頁共用） |
 | `status-panel.js` | 切換狀態面板（看板、機台頁共用） |
 | `history.js` | 異動履歷＋修正紀錄 |
 | `floorplan.js` | 平面圖（看板、主檔共用） |
@@ -42,8 +44,9 @@ CNC 精密零件代工廠銑床課自建的工廠製造管理執行系統（MES�
 
 | 檔案 | 版本號寫在 |
 |---|---|
-| `common.js` | `board.html`、`machine.html`、`list.html` |
+| `common.js` | `board.html`、`machine.html`、`list.html`、`repairs.html`、`master.html` |
 | `history.js`、`status-panel.js`、`board.css` | `board.html`、`machine.html` |
+| `repair.js` | `machine.html`、`repairs.html` |
 | `floorplan.js`、`floorplan.css` | `board.html`、`master.html` |
 | `qrcode.js` | `labels.html` |
 | `style.css` | 各頁 |

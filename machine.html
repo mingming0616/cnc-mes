@@ -35,6 +35,13 @@
     <!-- 剛存的資料還沒送到資料庫（沒網路或網路慢） -->
     <p id="mc-pending" class="mc-pending" role="status" hidden>還沒送出：網路恢復前，這個頁面先不要關</p>
 
+    <!-- 功能㉑：報修（沒有未結案的單 → 紅色「報修」大按鈕；有 → 顯示進度和下一步的按鈕） -->
+    <section id="mc-repair" hidden>
+      <h2 class="mc-sec">報修 <span id="mc-repair-test" class="rp-flag is-test" hidden>測試中</span></h2>
+      <div id="mc-repair-body"></div>
+      <a class="btn block" href="repairs.html" style="margin-top:4px">全部報修單</a>
+    </section>
+
     <!-- 切換狀態：點了才打開面板確認，不會一點就存 -->
     <section id="mc-actions" hidden>
       <h2 class="mc-sec">切換狀態</h2>
@@ -64,6 +71,7 @@
 //   異動履歷、修正紀錄：history.js（跟看板共用）
 //   沒登入：先到登入頁，登入後自動回到這台機
 //   之後的階段：報工、首件巡檢、換刀保養都加在這一頁
+//   功能㉑報修：多讀報修設定 1 次，再監聽這台最新的 1 張報修單（報修還沒開放時，只有管理者看得到、才會讀）
 // ============================================================
 // common.js、history.js、status-panel.js 改版時，把下面網址的 v 數字加 1（跟 board.html 一樣）
 import {
@@ -74,6 +82,8 @@ import {
 } from './common.js?v=7';
 import { setupHistory, openHistory, refreshHistory } from './history.js?v=4';
 import { setupStatusPanel, openStatusPanel, refreshStatusPanel } from './status-panel.js?v=1';
+// repair.js 改版時，把 v 的數字加 1（repairs.html 也要一樣）
+import { setupRepair, openRepairAction, ticketHtml, repairOpen, canOperate as canRepair, isActiveTicket } from './repair.js?v=1';
 
 const $ = (id) => document.getElementById(id);
 // 設備編號：英文大寫、數字和「-」，2～12 碼，第一個字不能是「-」（跟主檔一樣）
@@ -86,6 +96,9 @@ let dept = null;          // 這台設備的單位（狀態、原因、顏色）
 let floor = null;         // 這台設備的樓層
 let shiftSetting = null;  // 班別設定
 let statusEntry;          // 目前狀態 { data, pending }；還沒設定過是 undefined
+let repairCfg = null;     // 功能㉑：報修設定 settings/repair（沒有是 null）
+let ticket = null;        // 功能㉑：這台最新的一張報修單（沒有是 null）
+let ticketLoaded = false; // 報修單讀到了沒
 
 // ---------- 小工具（給面板、履歷用的介面跟看板一樣） ----------
 const machineOf = (id) => (machine && id === machine.machineId ? machine : null);
@@ -145,6 +158,7 @@ if (!CODE_PATTERN.test(machineId)) {
       } else {
         setupModules();
         listenStatus();
+        listenRepair();
         $('state').hidden = true;
         $('view').hidden = false;
         render();
@@ -161,11 +175,13 @@ async function loadMachine() {
   if (!machineSnap.exists()) return 'missing';
   machine = { ...machineSnap.data(), machineId: machineSnap.id };
   if (machine.active !== true) return 'inactive';
-  const [deptSnap, floorSnap, shiftSnap] = await Promise.all([
+  const [deptSnap, floorSnap, shiftSnap, repairSnap] = await Promise.all([
     getDoc(doc(db, 'departments', machine.deptId)),
     getDoc(doc(db, 'floors', machine.floorId)),
-    getDoc(doc(db, 'settings', 'shifts'))
+    getDoc(doc(db, 'settings', 'shifts')),
+    getDoc(doc(db, 'settings', 'repair'))
   ]);
+  repairCfg = repairSnap.exists() ? repairSnap.data() : null;
   dept = deptSnap.exists() ? { ...deptSnap.data(), id: deptSnap.id } : null;
   floor = floorSnap.exists() ? { ...floorSnap.data(), floorId: floorSnap.id } : null;
   shiftSetting = shiftSnap.exists() ? shiftSnap.data() : null;
@@ -187,6 +203,46 @@ function listenStatus() {
     toast(errorMessage(err), 'error');
   });
 }
+
+// 功能㉑：監聽這台最新的一張報修單（同一台機同時只會有一張沒結案的）
+//   需要索引：repairs 的 machineId 升序＋reportedAt 降序（缺索引時畫面會顯示建立連結）
+function listenRepair() {
+  if (!repairOpen(me, repairCfg)) return;   // 還沒開放：只有管理者看得到，其他人不多讀
+  const q = query(collection(db, 'repairs'), where('machineId', '==', machineId), orderBy('reportedAt', 'desc'), limit(1));
+  onSnapshot(q, (snap) => {
+    const d = snap.docs[0];
+    ticket = d ? { ...d.data({ serverTimestamps: 'estimate' }), id: d.id } : null;
+    ticketLoaded = true;
+    renderRepair();
+  }, (err) => {
+    ticketLoaded = true;
+    const link = String(err?.message || '').match(/https:\/\/console\.firebase\.google\.com\S+/);
+    $('mc-repair-body').innerHTML = `<p class="form-error">報修單讀不到：${escapeHtml(errorMessage(err))}</p>`
+      + (link && me.role === 'admin' ? `<a class="btn" href="${escapeHtml(link[0])}" target="_blank" rel="noopener">打開 Firebase 建立索引</a>` : '');
+  });
+}
+
+function renderRepair() {
+  const show = repairOpen(me, repairCfg);
+  $('mc-repair').hidden = !show;
+  if (!show) return;
+  $('mc-repair-test').hidden = repairCfg?.enabled === true;
+  if (!ticketLoaded) { $('mc-repair-body').innerHTML = '<p class="muted">讀取中…</p>'; return; }
+  if (ticket && isActiveTicket(ticket)) {
+    $('mc-repair-body').innerHTML = ticketHtml(ticket, { me, cfg: repairCfg, showMachine: false });
+  } else if (canRepair(me, machine.deptId)) {
+    $('mc-repair-body').innerHTML = '<button id="mc-report" type="button" class="btn rp-red rp-big">報修</button>'
+      + (ticket ? `<p class="muted">上一張：${escapeHtml(formatTime(ticket.reportedAt))}，${ticket.stage === 'cancelled' ? '已取消' : '已結案'}</p>` : '');
+  } else {
+    $('mc-repair-body').innerHTML = `<p class="muted">沒有未結案的報修單。${me.role === 'viewer' ? '檢視帳號不能報修。' : '你不負責這個單位，不能報修。'}</p>`;
+  }
+}
+
+$('mc-repair-body').addEventListener('click', (event) => {
+  if (event.target.closest('#mc-report')) { openRepairAction('report', { machine }); return; }
+  const button = event.target.closest('[data-act]');
+  if (button && ticket) openRepairAction(button.dataset.act, { ticket });
+});
 
 // 把資料庫函式和這一頁的資料傳給面板、履歷（跟看板傳的一樣）
 function setupModules() {
@@ -213,6 +269,23 @@ function setupModules() {
     getMe: () => me,
     canEdit,
     openHistory
+  });
+  setupRepair({
+    db, collection, doc, writeBatch, serverTimestamp, getDocFromServer, Timestamp,
+    escapeHtml, errorMessage, toast, setBusy, formatTime, formatDuration, prodDateAndShift,
+    myEmpNo,
+    getMe: () => me,
+    getShiftSetting: () => shiftSetting,
+    getRepairSetting: () => repairCfg,
+    deptFor: () => dept,
+    floorName,
+    // 改派可以選的人：管理者讀得到全部人員，列出在職的管理者、維護員；其他人只能選負責人、代理人
+    listAssignees: me?.role === 'admin'
+      ? async () => (await getDocs(collection(db, 'users'))).docs.map((d) => ({ ...d.data(), empNo: d.id }))
+        .filter((u) => u.active === true && (u.role === 'admin' || u.role === 'maintainer'))
+        .sort((x, y) => x.empNo.localeCompare(y.empNo))
+        .map((u) => ({ empNo: u.empNo, name: u.name }))
+      : null
   });
 }
 
@@ -264,6 +337,7 @@ function render() {
     }).join('') || '<p class="muted">這個單位還沒有狀態設定，請管理者回首頁按「建立預設資料」。</p>';
   }
   $('mc-who-text').textContent = `目前登入：${me.name}（${me.empNo}）`;
+  renderRepair();
 }
 
 // 點狀態 → 打開面板（先幫他選好這個狀態），在面板選原因、按「確認」才存
@@ -295,6 +369,7 @@ setInterval(() => {
   document.querySelectorAll('.js-dur').forEach((el) => {
     el.textContent = formatDuration(now - Number(el.dataset.since));
   });
+  if (ticket && !document.querySelector('#dlg-repair[open]')) renderRepair();   // 報修單的等待時間（只改畫面）
 }, 30000);
 </script>
 </body>

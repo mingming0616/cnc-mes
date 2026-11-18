@@ -127,6 +127,7 @@
 //   功能⑥：網址帶 ?next=machine&machineId=設備編號（機台頁沒登入時帶過來）
 //     → 登入後直接回到那台機的機台頁，不進首頁
 //   功能⑩：預設資料加上狀態「借出」；已經建好的銑床課用「設定更新」按鈕補上（按一次就好）
+//   功能㉑：首頁多讀 settings/repair 1 次，決定「報修單」卡片給誰看
 // ============================================================
 import {
   db, doc, getDoc, getDocFromServer, writeBatch, serverTimestamp,
@@ -152,6 +153,8 @@ const MODULES = [
     href: 'board.html', roles: ALL_ROLES, testing: !!LEGACY_BOARD_URL },
   // 功能⑮⑯：設備清單（搜尋、篩選、匯出）＋全部機台的異動履歷
   { label: '設備清單與履歷', desc: '搜尋、篩選、匯出 CSV', href: 'list.html', roles: ALL_ROLES },
+  // 功能㉑：報修單（還沒開放時只有管理者看得到，標「測試中」；開放後所有角色都看得到）
+  { label: '報修單', desc: '報修、接單、維修完成、驗收', href: 'repairs.html', roles: ALL_ROLES, gate: 'repair' },
   { label: '主檔維護', desc: '設備、樓層', href: 'master.html', roles: ['admin'] },
   { label: '人員管理', desc: '帳號、角色、負責單位', href: 'users.html', roles: ['admin'] }
 ];
@@ -360,11 +363,31 @@ $('login-form').addEventListener('submit', async (event) => {
 });
 
 // ---------- 首頁 ----------
+let repairEnabled = null;   // 功能㉑：報修開放了沒（null＝還沒讀）
+
 function renderHome(profile) {
   $('home-name').textContent = profile.name;
   $('home-role').textContent = ROLE_LABELS[profile.role] || profile.role;
+  renderKeys(profile);
+  // 功能㉑：讀報修設定 1 次，決定「報修單」卡片要不要出現
+  if (repairEnabled === null) {
+    getDoc(doc(db, 'settings', 'repair'))
+      .then((snap) => { repairEnabled = snap.exists() && snap.data().enabled === true; renderKeys(profile); })
+      .catch(() => { repairEnabled = false; });
+  }
+  if (profile.role === 'admin') {
+    checkSetup();
+  } else {
+    $('setup-card').hidden = true;
+  }
+}
+
+function renderKeys(profile) {
   $('module-keys').innerHTML = MODULES
     .filter((m) => m.roles.includes(profile.role))
+    // 報修單：開放了所有人看得到；還沒開放只有管理者看得到（標測試中）
+    .filter((m) => m.gate !== 'repair' || repairEnabled === true || profile.role === 'admin')
+    .map((m) => ({ ...m, testing: m.testing || (m.gate === 'repair' && repairEnabled !== true) }))
     .map((m) => m.href
       ? `<a class="key${m.wide ? ' key-wide' : ''}${m.testing ? ' key-testing' : ''}" href="${m.href}"${m.external ? ' target="_blank" rel="noopener"' : ''}>`
         + `<span class="key-label">${m.label}${m.external ? ' <span class="key-ext" aria-label="另開分頁">↗</span>' : ''}</span>`
@@ -373,11 +396,6 @@ function renderHome(profile) {
         + '</a>'
       : `<div class="key is-soon" aria-disabled="true"><span class="key-label">${m.label}</span><span class="key-desc">${m.desc}</span><span class="soon">準備中</span></div>`)
     .join('');
-  if (profile.role === 'admin') {
-    checkSetup();
-  } else {
-    $('setup-card').hidden = true;
-  }
 }
 
 // 管理者：檢查預設資料建了沒，沒建才顯示「建立預設資料」

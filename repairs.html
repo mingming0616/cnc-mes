@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="zh-Hant-TW">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#1D262D">
+<title>報修單｜CNC MES</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@500;600;700&display=swap">
+<link rel="stylesheet" href="style.css?v=2">
+<style>
+  /* ============================================================
+     功能㉑ 報修單頁的樣式（只有這頁用，寫在這裡就不用改 style.css 的版本號）
+     報修單卡片、視窗的樣式在 repair.js 裡（機台頁共用）
+     ============================================================ */
+  .page-rp { max-width: 900px; padding: 16px 16px 48px; }
+  .rp-conn { margin-left: auto; font-size: 14px; padding: 2px 10px; border: 1px solid rgba(255, 255, 255, .55); border-radius: 4px; white-space: nowrap; }
+  .rp-conn.is-offline { border-style: dashed; color: #FFD7D2; }
+  .rp-box { background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; padding: 12px 14px; margin: 0 0 14px; }
+  .rp-box h2 { font-size: 17px; margin: 0 0 8px; }
+  .rp-cfg { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 18px; font-size: 16px; }
+  .rp-cfg .btn { margin-left: auto; }
+  .rp-away { color: #B3261E; font-weight: 700; }
+  .rp-go { display: flex; gap: 8px; align-items: flex-end; flex-wrap: wrap; }
+  .rp-go .field { flex: 1 1 200px; margin: 0; }
+  .rp-go .btn { min-height: 48px; }
+  .rp-tabs { display: flex; gap: 0; margin: 4px 0 12px; border-bottom: 2px solid var(--ink); overflow-x: auto; }
+  .rp-tab { min-height: 48px; padding: 0 16px; border: 2px solid transparent; border-bottom: 0; border-radius: 6px 6px 0 0;
+    background: transparent; color: var(--ink-soft); font: inherit; font-size: 17px; font-weight: 700; cursor: pointer; white-space: nowrap; }
+  .rp-tab[aria-selected="true"] { background: var(--panel); color: var(--ink); border-color: var(--ink); margin-bottom: -2px; }
+  .rp-tab .n { display: inline-block; min-width: 24px; margin-left: 4px; padding: 0 6px; border-radius: 12px; background: var(--sunk); font-size: 15px; }
+  .rp-tab .n.is-hot { background: #D93025; color: #fff; }
+  .rp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 0 0 10px; }
+  .rp-bar .muted { margin-left: auto; }
+  .rp-empty { padding: 28px 12px; text-align: center; color: var(--ink-soft); background: var(--panel); border: 1px dashed var(--rule-strong); border-radius: 8px; }
+  @media (max-width: 600px) {
+    .page-rp { padding: 12px 10px 40px; }
+    .rp-tab { padding: 0 10px; font-size: 16px; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <a class="btn ghost" href="index.html">回首頁</a>
+  <span class="topbar-title">報修單</span>
+  <span id="conn" class="rp-conn">連線中…</span>
+</header>
+
+<main class="page page-rp">
+  <!-- 載入中、讀取錯誤、還沒開放時顯示這裡 -->
+  <div id="state" class="state">載入中…</div>
+
+  <section id="view" hidden>
+    <!-- 維修設定：負責人、代理人、負責人休假中（管理者可以改全部；負責人本人可以切休假中） -->
+    <section class="rp-box" aria-labelledby="cfg-title">
+      <h2 id="cfg-title">維修設定 <span id="cfg-test" class="rp-flag is-test" hidden>報修測試中：現場看不到</span></h2>
+      <div id="cfg" class="rp-cfg"></div>
+    </section>
+
+    <!-- 沒辦法掃 QR 時：輸入設備編號，到機台頁報修 -->
+    <form id="go-form" class="rp-box rp-go" novalidate>
+      <label class="field"><span>掃不到 QR？輸入設備編號到機台頁報修</span>
+        <input id="go-id" type="text" maxlength="12" placeholder="例：M101" autocomplete="off" spellcheck="false" enterkeyhint="go"></label>
+      <button class="btn" type="submit">前往機台頁</button>
+    </form>
+
+    <div class="rp-tabs" role="tablist">
+      <button type="button" class="rp-tab" role="tab" data-tab="open" aria-selected="true">待接單<span class="n" id="n-open">0</span></button>
+      <button type="button" class="rp-tab" role="tab" data-tab="repairing" aria-selected="false">維修中<span class="n" id="n-repairing">0</span></button>
+      <button type="button" class="rp-tab" role="tab" data-tab="pendingAccept" aria-selected="false">待驗收<span class="n" id="n-pendingAccept">0</span></button>
+      <button type="button" class="rp-tab" role="tab" data-tab="done" aria-selected="false">已結案</button>
+    </div>
+    <div class="rp-bar">
+      <label class="check"><input id="mine" type="checkbox"> 只看指派給我的</label>
+      <button id="btn-reload" class="btn" type="button" hidden>重新讀取</button>
+      <span id="sum" class="muted"></span>
+    </div>
+    <div id="list" aria-live="polite"></div>
+  </section>
+</main>
+
+<!-- 維修設定（管理者） -->
+<dialog id="dlg-cfg">
+  <form id="cfg-form" class="dialog-body" novalidate>
+    <h2>維修設定</h2>
+    <label class="field"><span>維修負責人（報修單預設派給他，夜班也一樣）</span><select id="cfg-owner"></select></label>
+    <label class="field"><span>代理人（負責人休假時改派給他）</span><select id="cfg-proxy"></select></label>
+    <label class="check"><input id="cfg-away" type="checkbox"> 負責人休假中（新的報修單派給代理人）</label>
+    <label class="check"><input id="cfg-enabled" type="checkbox"> 開放給現場使用</label>
+    <p class="muted">「開放給現場使用」要等⑳切換上線、機台狀態改在 MES 之後才勾；沒勾之前只有管理者看得到報修。</p>
+    <p id="cfg-error" class="form-error" role="alert"></p>
+    <div class="row-actions">
+      <button id="cfg-cancel" class="btn" type="button">取消</button>
+      <button id="cfg-save" class="btn primary" type="submit">儲存</button>
+    </div>
+  </form>
+</dialog>
+
+<script type="module">
+// ============================================================
+// repairs.html：報修單（功能㉑）
+//   分頁：待接單／維修中／待驗收（即時更新）、已結案（最近 30 天，點了才讀）
+//   讀取量：開頁讀單位、樓層、班別各 1 次＋即時監聽報修設定＋監聽還沒結案的報修單（平常只有幾筆）；
+//     「已結案」每按一次讀最近 30 天的單（最多 300 筆）
+//   報修單卡片、各步驟的按鈕和視窗：repair.js（跟機台頁共用）
+//   報修還沒開放（settings/repair.enabled 不是 true）時，只有管理者能進來（測試）
+// ============================================================
+// common.js、repair.js 改版時，把下面網址的 v 數字加 1
+import {
+  db, collection, doc, getDocs, setDoc, writeBatch, serverTimestamp, onSnapshot, query, where, orderBy, limit,
+  Timestamp, getDocFromServer,
+  requireUser, myEmpNo, errorMessage, escapeHtml, toast, setBusy, formatTime, formatDuration, prodDateAndShift
+} from './common.js?v=7';
+import {
+  setupRepair, openRepairAction, ticketHtml, repairOpen, stageOf, assigneeOf, ACTIVE_STAGES
+} from './repair.js?v=1';
+
+const $ = (id) => document.getElementById(id);
+const DONE_DAYS = 30;
+const DONE_LIMIT = 300;
+
+let me = null;
+let depts = new Map();       // 單位代號 → 單位設定
+let floors = new Map();      // 樓層代號 → 名稱
+let shiftSetting = null;
+let cfg = null;              // settings/repair
+let cfgLoaded = false;
+let active = [];             // 還沒結案的報修單
+let done = null;             // 已結案（按了才讀；null＝還沒讀）
+let tab = 'open';
+let users = null;            // 管理者：在職人員（改派、維修設定用）
+let started = false;
+
+function setConn(online) {
+  $('conn').textContent = online ? '即時更新中' : '離線：畫面可能不是最新';
+  $('conn').classList.toggle('is-offline', !online);
+}
+
+function fail(html) {
+  $('state').innerHTML = html;
+  $('state').hidden = false;
+  $('view').hidden = true;
+}
+
+// ---------- 開始 ----------
+const ctx = await requireUser();
+if (ctx.error) {
+  fail(`<p>${escapeHtml(errorMessage(ctx.error))}</p><button class="btn" type="button" onclick="location.reload()">重新整理</button>`);
+} else {
+  me = ctx.profile;
+  try {
+    const [deptSnap, floorSnap, shiftSnap] = await Promise.all([
+      getDocs(collection(db, 'departments')),
+      getDocs(collection(db, 'floors')),
+      getDocFromServer(doc(db, 'settings', 'shifts')).catch(() => null)
+    ]);
+    deptSnap.forEach((d) => depts.set(d.id, { ...d.data(), id: d.id }));
+    floorSnap.forEach((d) => floors.set(d.id, d.data().name || d.id));
+    shiftSetting = shiftSnap?.exists() ? shiftSnap.data() : null;
+    setupRepair({
+      db, collection, doc, writeBatch, serverTimestamp, getDocFromServer, Timestamp,
+      escapeHtml, errorMessage, toast, setBusy, formatTime, formatDuration, prodDateAndShift,
+      myEmpNo,
+      getMe: () => me,
+      getShiftSetting: () => shiftSetting,
+      getRepairSetting: () => cfg,
+      deptFor: (id) => depts.get(id) || null,
+      floorName: (id) => floors.get(id) || id || '—',
+      listAssignees: me.role === 'admin' ? loadUsers : null
+    });
+    listenCfg();
+  } catch (err) {
+    fail(`<p>${escapeHtml(errorMessage(err))}</p><button class="btn" type="button" onclick="location.reload()">重新整理</button>`);
+  }
+}
+
+// 報修設定：即時監聽（負責人切休假、管理者改設定，其他人畫面馬上跟著變）
+function listenCfg() {
+  onSnapshot(doc(db, 'settings', 'repair'), (snap) => {
+    cfg = snap.exists() ? snap.data() : null;
+    cfgLoaded = true;
+    if (!repairOpen(me, cfg)) {
+      fail('<p>報修還沒開放。</p><p class="muted">機台狀態目前還是在 v3.3 改，等新版看板正式上線後才會開放。</p><a class="btn" href="index.html">回首頁</a>');
+      return;
+    }
+    $('state').hidden = true;
+    $('view').hidden = false;
+    renderCfg();
+    if (!started) { started = true; listenActive(); }
+    render();
+  }, (err) => fail(`<p>${escapeHtml(errorMessage(err))}</p>`));
+}
+
+// 還沒結案的報修單：即時監聽（stage 是待接單、維修中、待驗收的）
+function listenActive() {
+  const q = query(collection(db, 'repairs'), where('stage', 'in', ACTIVE_STAGES));
+  onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
+    active = snap.docs.map((d) => ({ ...d.data({ serverTimestamps: 'estimate' }), id: d.id }));
+    setConn(!snap.metadata.fromCache);
+    render();
+  }, (err) => {
+    setConn(false);
+    toast(errorMessage(err), 'error');
+  });
+}
+
+// 已結案：最近 30 天報修的（含取消、超過 24 小時沒驗收的）
+async function loadDone() {
+  $('list').innerHTML = '<p class="muted">讀取中…</p>';
+  try {
+    const from = Timestamp.fromMillis(Date.now() - DONE_DAYS * 86400000);
+    const q = query(collection(db, 'repairs'), where('reportedAt', '>=', from), orderBy('reportedAt', 'desc'), limit(DONE_LIMIT));
+    const snap = await getDocs(q);
+    done = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+  } catch (err) {
+    done = [];
+    toast(errorMessage(err), 'error');
+  }
+  render();
+}
+
+// 管理者：在職的管理者、維護員（改派、選負責人用；只有管理者讀得到人員資料）
+async function loadUsers() {
+  if (!users) {
+    const snap = await getDocs(collection(db, 'users'));
+    users = snap.docs.map((d) => ({ ...d.data(), empNo: d.id }))
+      .filter((u) => u.active === true && (u.role === 'admin' || u.role === 'maintainer'))
+      .sort((a, b) => a.empNo.localeCompare(b.empNo));
+  }
+  return users.map((u) => ({ empNo: u.empNo, name: u.name }));
+}
+
+// ---------- 畫面 ----------
+function renderCfg() {
+  const esc = escapeHtml;
+  const isOwner = !!cfg?.ownerEmpNo && cfg.ownerEmpNo === me.empNo;
+  $('cfg-test').hidden = cfg?.enabled === true;
+  if (!cfg?.ownerEmpNo) {
+    $('cfg').innerHTML = '<span class="rp-away">還沒設定維修負責人，報修單沒辦法派工。</span>'
+      + (me.role === 'admin' ? '<button id="cfg-edit" class="btn primary" type="button">設定</button>' : '<span class="muted">請管理者設定。</span>');
+    return;
+  }
+  const who = assigneeOf(cfg);
+  $('cfg').innerHTML =
+    `<span>負責人：<b>${esc(cfg.ownerName)}</b>${cfg.ownerAway ? ' <span class="rp-away">休假中</span>' : ''}</span>`
+    + `<span>代理人：<b>${esc(cfg.proxyName || '（沒有）')}</b></span>`
+    + `<span class="muted">新報修派給：${esc(who?.name || '—')}</span>`
+    + (isOwner ? `<button id="cfg-away-btn" class="btn" type="button">${cfg.ownerAway ? '我回來了' : '我要休假'}</button>` : '')
+    + (me.role === 'admin' ? '<button id="cfg-edit" class="btn" type="button">設定</button>' : '');
+}
+
+function render() {
+  if (!cfgLoaded || $('view').hidden) return;
+  const now = Date.now();
+  const mine = $('mine').checked;
+  const forMe = (t) => !mine || t.assignedEmpNo === me.empNo;
+  const byStage = { open: [], repairing: [], pendingAccept: [] };
+  active.forEach((t) => {
+    const s = stageOf(t, now);
+    if (byStage[s]) byStage[s].push(t);
+  });
+  for (const key of Object.keys(byStage)) {
+    const list = byStage[key].filter(forMe);
+    $(`n-${key}`).textContent = String(list.length);
+    // 有退回重修、或待接單的，數字變紅提醒
+    const hot = key === 'open' ? list.length > 0 : key === 'repairing' && list.some((t) => (t.reworks || []).length > 0);
+    $(`n-${key}`).classList.toggle('is-hot', hot);
+  }
+  document.querySelectorAll('.rp-tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
+  $('btn-reload').hidden = tab !== 'done';
+
+  let list;
+  if (tab === 'done') {
+    if (done === null) { loadDone(); return; }
+    // 已結案＝結案、取消，加上超過 24 小時沒驗收的（含還在即時清單裡的）
+    const ids = new Set();
+    list = [...done, ...active].filter((t) => {
+      if (ids.has(t.id)) return false;
+      ids.add(t.id);
+      return ['closed', 'cancelled', 'unaccepted'].includes(stageOf(t, now));
+    }).filter(forMe);
+    list.sort((a, b) => ms(b.reportedAt) - ms(a.reportedAt));
+    $('sum').textContent = `最近 ${DONE_DAYS} 天，${list.length} 張${done.length >= DONE_LIMIT ? `（只顯示最新 ${DONE_LIMIT} 張）` : ''}`;
+  } else {
+    list = byStage[tab].filter(forMe);
+    // 退回重修的排最前面，其他照報修時間（舊的在前，先報先修）
+    list.sort((a, b) => ((b.reworks || []).length > 0) - ((a.reworks || []).length > 0) || ms(a.reportedAt) - ms(b.reportedAt));
+    $('sum').textContent = `${list.length} 張`;
+  }
+  $('list').innerHTML = list.length
+    ? list.map((t) => ticketHtml(t, { me, cfg, now })).join('')
+    : `<p class="rp-empty">${tab === 'done' ? `最近 ${DONE_DAYS} 天沒有結案的報修單` : '目前沒有'}${mine ? '（只看指派給我的）' : ''}</p>`;
+}
+
+function ms(t) { return t && typeof t.toMillis === 'function' ? t.toMillis() : 0; }
+
+// ---------- 操作 ----------
+document.querySelector('.rp-tabs').addEventListener('click', (event) => {
+  const button = event.target.closest('.rp-tab');
+  if (!button) return;
+  tab = button.dataset.tab;
+  render();
+});
+$('mine').addEventListener('change', render);
+$('btn-reload').addEventListener('click', () => { done = null; render(); });
+
+$('list').addEventListener('click', (event) => {
+  const button = event.target.closest('[data-act]');
+  if (!button) return;
+  const t = active.find((x) => x.id === button.dataset.id) || (done || []).find((x) => x.id === button.dataset.id);
+  if (t) openRepairAction(button.dataset.act, { ticket: t });
+});
+
+$('go-form').addEventListener('submit', (event) => {
+  event.preventDefault();
+  const id = $('go-id').value.trim().toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9-]{1,11}$/.test(id)) { toast('設備編號格式不對', 'error'); return; }
+  location.href = `machine.html?machineId=${encodeURIComponent(id)}`;
+});
+
+// 負責人本人切「休假中」
+$('cfg').addEventListener('click', async (event) => {
+  if (event.target.closest('#cfg-edit')) { openCfg(); return; }
+  const button = event.target.closest('#cfg-away-btn');
+  if (!button) return;
+  const away = !cfg.ownerAway;
+  if (away && !cfg.proxyEmpNo && !confirm('還沒設定代理人，休假中新的報修單還是會派給你。確定嗎？')) return;
+  setBusy(button, true, '儲存中…');
+  try {
+    await setDoc(doc(db, 'settings', 'repair'), { ownerAway: away, updatedAt: serverTimestamp(), updatedByEmpNo: myEmpNo() }, { merge: true });
+    toast(away ? '已設成休假中，新的報修單派給代理人' : '歡迎回來，新的報修單派給你');
+  } catch (err) {
+    toast(errorMessage(err), 'error');
+    setBusy(button, false);
+  }
+});
+
+// 管理者：維修設定
+async function openCfg() {
+  $('cfg-error').textContent = '';
+  $('dlg-cfg').showModal();
+  $('cfg-owner').innerHTML = $('cfg-proxy').innerHTML = '<option>讀取中…</option>';
+  try {
+    const people = await loadUsers();
+    const opts = (selected, blank) => (blank ? `<option value="">${blank}</option>` : '<option value="">請選擇</option>')
+      + people.map((p) => `<option value="${escapeHtml(p.empNo)}"${p.empNo === selected ? ' selected' : ''}>${escapeHtml(p.empNo)} ${escapeHtml(p.name)}</option>`).join('');
+    $('cfg-owner').innerHTML = opts(cfg?.ownerEmpNo || '');
+    $('cfg-proxy').innerHTML = opts(cfg?.proxyEmpNo || '', '（沒有代理人）');
+    $('cfg-away').checked = cfg?.ownerAway === true;
+    $('cfg-enabled').checked = cfg?.enabled === true;
+  } catch (err) {
+    $('cfg-error').textContent = errorMessage(err);
+  }
+}
+$('cfg-cancel').addEventListener('click', () => $('dlg-cfg').close());
+$('cfg-form').addEventListener('submit', async (event) => {
+  event.preventDefault();
+  const owner = (users || []).find((u) => u.empNo === $('cfg-owner').value);
+  const proxy = (users || []).find((u) => u.empNo === $('cfg-proxy').value);
+  if (!owner) { $('cfg-error').textContent = '請選維修負責人'; return; }
+  if (proxy && proxy.empNo === owner.empNo) { $('cfg-error').textContent = '代理人不能跟負責人同一個人'; return; }
+  const enabled = $('cfg-enabled').checked;
+  if (enabled && cfg?.enabled !== true
+      && !confirm('開放後，所有維護員都看得到報修，報修會直接改 MES 的機台狀態。\n機台狀態已經改在 MES（⑳切換上線）了嗎？')) return;
+  setBusy($('cfg-save'), true, '儲存中…');
+  try {
+    await setDoc(doc(db, 'settings', 'repair'), {
+      ownerEmpNo: owner.empNo, ownerName: owner.name,
+      proxyEmpNo: proxy ? proxy.empNo : '', proxyName: proxy ? proxy.name : '',
+      ownerAway: $('cfg-away').checked,
+      enabled,
+      updatedAt: serverTimestamp(), updatedByEmpNo: myEmpNo()
+    });
+    $('dlg-cfg').close();
+    toast('維修設定已儲存');
+  } catch (err) {
+    $('cfg-error').textContent = errorMessage(err);
+  } finally {
+    setBusy($('cfg-save'), false);
+  }
+});
+
+// 等待時間每 30 秒更新一次（只改畫面上的字，不會讀資料庫）
+setInterval(() => { if (!document.querySelector('dialog[open]')) render(); }, 30000);
+</script>
+</body>
+</html>
