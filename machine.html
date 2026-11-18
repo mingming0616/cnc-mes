@@ -39,7 +39,10 @@
     <section id="mc-repair" hidden>
       <h2 class="mc-sec">報修 <span id="mc-repair-test" class="rp-flag is-test" hidden>測試中</span></h2>
       <div id="mc-repair-body"></div>
-      <a class="btn block" href="repairs.html" style="margin-top:4px">全部報修單</a>
+      <div class="rp-acts" style="margin-top:4px">
+        <a id="mc-repair-hist" class="btn" href="repairs.html">這台的維修履歷</a>
+        <a class="btn" href="repairs.html">全部報修單</a>
+      </div>
     </section>
 
     <!-- 切換狀態：點了才打開面板確認，不會一點就存 -->
@@ -227,6 +230,7 @@ function renderRepair() {
   $('mc-repair').hidden = !show;
   if (!show) return;
   $('mc-repair-test').hidden = repairCfg?.enabled === true;
+  $('mc-repair-hist').href = `repairs.html?machineId=${encodeURIComponent(machineId)}`;   // 功能㉒
   if (!ticketLoaded) { $('mc-repair-body').innerHTML = '<p class="muted">讀取中…</p>'; return; }
   if (ticket && isActiveTicket(ticket)) {
     $('mc-repair-body').innerHTML = ticketHtml(ticket, { me, cfg: repairCfg, showMachine: false });

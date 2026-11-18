@@ -34,9 +34,34 @@
   .rp-bar { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 16px; margin: 0 0 10px; }
   .rp-bar .muted { margin-left: auto; }
   .rp-empty { padding: 28px 12px; text-align: center; color: var(--ink-soft); background: var(--panel); border: 1px dashed var(--rule-strong); border-radius: 8px; }
+  /* 功能㉒ 統計 */
+  .st-ctl { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: flex-end; }
+  .st-ctl .field { margin: 0; flex: 1 1 140px; }
+  .st-ctl .btn { min-height: 48px; }
+  .st-kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 8px; margin: 12px 0; }
+  .st-kpi { background: var(--panel); border: 2px solid var(--ink); border-radius: 8px; padding: 8px 12px; }
+  .st-kpi .k { display: block; font-size: 14px; color: var(--ink-soft); }
+  .st-kpi .v { display: block; font-family: var(--font-code); font-size: 26px; font-weight: 700; line-height: 1.25; }
+  .st-kpi .s { display: block; font-size: 13px; color: var(--ink-soft); }
+  .st-sec { margin: 18px 0 6px; font-size: 18px; }
+  .st-wrap { overflow-x: auto; }
+  .st-table { width: 100%; border-collapse: collapse; background: var(--panel); font-size: 15px; }
+  .st-table th, .st-table td { padding: 8px 10px; border-bottom: 1px solid var(--rule); text-align: left; white-space: nowrap; }
+  .st-table th { background: var(--sunk); font-size: 14px; }
+  .st-table td.n { text-align: right; font-family: var(--font-code); }
+  .st-table tr.is-link { cursor: pointer; }
+  .st-table tr.is-link:hover td { background: var(--sunk); }
+  .st-bar { display: inline-block; height: 10px; background: #D93025; border-radius: 2px; vertical-align: middle; margin-right: 6px; }
+  .st-note { font-size: 13px; color: var(--ink-soft); margin: 4px 0 0; }
+  .mc-mode { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; }
+  .mc-mode b { font-family: var(--font-code); font-size: 22px; }
+  .mc-mode .btn { margin-left: auto; }
   @media (max-width: 600px) {
     .page-rp { padding: 12px 10px 40px; }
-    .rp-tab { padding: 0 10px; font-size: 16px; }
+    .rp-tab { padding: 0 7px; font-size: 15px; }
+    .rp-tab .n { margin-left: 2px; padding: 0 5px; min-width: 20px; }
+    .st-table th, .st-table td { padding: 8px 6px; }
+    .st-col-floor { display: none; }
   }
 </style>
 </head>
@@ -59,6 +84,14 @@
       <div id="cfg" class="rp-cfg"></div>
     </section>
 
+    <!-- 功能㉒：從機台頁「這台的維修履歷」進來（網址 ?machineId=）時，只顯示這台機 -->
+    <section id="mc-mode" class="rp-box mc-mode" hidden>
+      <span>只看 <b id="mc-mode-id"></b></span>
+      <span id="mc-mode-sum" class="muted"></span>
+      <a id="mc-mode-back" class="btn" href="#">回機台頁</a>
+      <a class="btn" href="repairs.html">看全部機台</a>
+    </section>
+
     <!-- 沒辦法掃 QR 時：輸入設備編號，到機台頁報修 -->
     <form id="go-form" class="rp-box rp-go" novalidate>
       <label class="field"><span>掃不到 QR？輸入設備編號到機台頁報修</span>
@@ -71,6 +104,7 @@
       <button type="button" class="rp-tab" role="tab" data-tab="repairing" aria-selected="false">維修中<span class="n" id="n-repairing">0</span></button>
       <button type="button" class="rp-tab" role="tab" data-tab="pendingAccept" aria-selected="false">待驗收<span class="n" id="n-pendingAccept">0</span></button>
       <button type="button" class="rp-tab" role="tab" data-tab="done" aria-selected="false">已結案</button>
+      <button type="button" class="rp-tab" role="tab" data-tab="stats" aria-selected="false">統計</button>
     </div>
     <div class="rp-bar">
       <label class="check"><input id="mine" type="checkbox"> 只看指派給我的</label>
@@ -78,6 +112,23 @@
       <span id="sum" class="muted"></span>
     </div>
     <div id="list" aria-live="polite"></div>
+
+    <!-- 功能㉒ 統計：按「查詢」才讀 -->
+    <section id="stats" hidden>
+      <div class="rp-box st-ctl">
+        <label class="field"><span>期間</span>
+          <select id="st-period">
+            <option value="thisMonth">本月</option>
+            <option value="lastMonth">上月</option>
+            <option value="d30" selected>最近 30 天</option>
+            <option value="d90">最近 90 天</option>
+          </select></label>
+        <label class="field"><span>樓層</span><select id="st-floor"><option value="">全部</option></select></label>
+        <button id="st-run" class="btn primary" type="button">查詢</button>
+        <button id="st-csv" class="btn" type="button" hidden>匯出 CSV</button>
+      </div>
+      <div id="st-out"><p class="muted">選好期間按「查詢」。</p></div>
+    </section>
   </section>
 </main>
 
@@ -106,6 +157,13 @@
 //     「已結案」每按一次讀最近 30 天的單（最多 300 筆）
 //   報修單卡片、各步驟的按鈕和視窗：repair.js（跟機台頁共用）
 //   報修還沒開放（settings/repair.enabled 不是 true）時，只有管理者能進來（測試）
+//   功能㉒ 維修履歷與統計：
+//     ‧「統計」分頁：期間（本月／上月／最近 30、90 天）＋樓層，按「查詢」讀那段期間報修的單（每張 1 次，最多 1,000 張）
+//       總覽：報修件數、平均反應時間（報修→接單）、平均修理時間（接單→最後一次修完）、
+//             MTTR 平均修復時間（報修→修好，只算有停機的）、退回率；排行：機台、故障原因、維修人員；匯出 CSV
+//       MTBF 先粗估＝期間天數 ÷ 故障次數（精準的要扣掉不生產的時間，階段 6 稼動率再做）
+//     ‧網址 ?machineId=設備編號：只看這台（機台頁「這台的維修履歷」進來），已結案分頁列這台最近 100 張
+//     ‧取消的單不列入統計（CSV 照樣列出）
 // ============================================================
 // common.js、repair.js 改版時，把下面網址的 v 數字加 1
 import {
@@ -120,6 +178,13 @@ import {
 const $ = (id) => document.getElementById(id);
 const DONE_DAYS = 30;
 const DONE_LIMIT = 300;
+const STATS_LIMIT = 1000;
+const MACHINE_LIMIT = 100;
+// 功能㉒：網址帶 ?machineId= 就只看這台
+const MID = (() => {
+  const v = (new URLSearchParams(location.search).get('machineId') || '').trim().toUpperCase();
+  return /^[A-Z0-9][A-Z0-9-]{1,11}$/.test(v) ? v : '';
+})();
 
 let me = null;
 let depts = new Map();       // 單位代號 → 單位設定
@@ -129,7 +194,8 @@ let cfg = null;              // settings/repair
 let cfgLoaded = false;
 let active = [];             // 還沒結案的報修單
 let done = null;             // 已結案（按了才讀；null＝還沒讀）
-let tab = 'open';
+let tab = MID ? 'done' : 'open';
+let stats = null;            // 功能㉒：統計查詢結果 { list, from, to, label }
 let users = null;            // 管理者：在職人員（改派、維修設定用）
 let started = false;
 
@@ -158,6 +224,18 @@ if (ctx.error) {
     ]);
     deptSnap.forEach((d) => depts.set(d.id, { ...d.data(), id: d.id }));
     floorSnap.forEach((d) => floors.set(d.id, d.data().name || d.id));
+    [...floorSnap.docs].map((d) => ({ id: d.id, ...d.data() }))
+      .filter((f) => f.active !== false && f.floorId !== 'TEST-1F')
+      .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
+      .forEach((f) => $('st-floor').insertAdjacentHTML('beforeend', `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name || f.id)}</option>`));
+    if (MID) {
+      $('mc-mode').hidden = false;
+      $('mc-mode-id').textContent = MID;
+      $('mc-mode-back').href = `machine.html?machineId=${encodeURIComponent(MID)}`;
+      $('st-floor').closest('.field').hidden = true;
+      document.title = `${MID} 維修履歷｜CNC MES`;
+    }
+    $('st-csv').hidden = !(me.role === 'admin' || me.role === 'maintainer');
     shiftSetting = shiftSnap?.exists() ? shiftSnap.data() : null;
     setupRepair({
       db, collection, doc, writeBatch, serverTimestamp, getDocFromServer, Timestamp,
@@ -197,7 +275,8 @@ function listenCfg() {
 function listenActive() {
   const q = query(collection(db, 'repairs'), where('stage', 'in', ACTIVE_STAGES));
   onSnapshot(q, { includeMetadataChanges: true }, (snap) => {
-    active = snap.docs.map((d) => ({ ...d.data({ serverTimestamps: 'estimate' }), id: d.id }));
+    active = snap.docs.map((d) => ({ ...d.data({ serverTimestamps: 'estimate' }), id: d.id }))
+      .filter((t) => !MID || t.machineId === MID);
     setConn(!snap.metadata.fromCache);
     render();
   }, (err) => {
@@ -211,9 +290,13 @@ async function loadDone() {
   $('list').innerHTML = '<p class="muted">讀取中…</p>';
   try {
     const from = Timestamp.fromMillis(Date.now() - DONE_DAYS * 86400000);
-    const q = query(collection(db, 'repairs'), where('reportedAt', '>=', from), orderBy('reportedAt', 'desc'), limit(DONE_LIMIT));
+    // 只看一台：不限 30 天，這台最近 100 張（用 machineId＋reportedAt 的索引）
+    const q = MID
+      ? query(collection(db, 'repairs'), where('machineId', '==', MID), orderBy('reportedAt', 'desc'), limit(MACHINE_LIMIT))
+      : query(collection(db, 'repairs'), where('reportedAt', '>=', from), orderBy('reportedAt', 'desc'), limit(DONE_LIMIT));
     const snap = await getDocs(q);
     done = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+    if (MID) renderMachineSum();
   } catch (err) {
     done = [];
     toast(errorMessage(err), 'error');
@@ -270,6 +353,12 @@ function render() {
   }
   document.querySelectorAll('.rp-tab').forEach((b) => b.setAttribute('aria-selected', String(b.dataset.tab === tab)));
   $('btn-reload').hidden = tab !== 'done';
+  // 統計分頁：清單和「只看指派給我」藏起來
+  $('stats').hidden = tab !== 'stats';
+  $('list').hidden = tab === 'stats';
+  document.querySelector('.rp-bar').hidden = tab === 'stats';
+  if (tab === 'stats') return;
+  if (MID && done === null && tab !== 'done') loadDone();
 
   let list;
   if (tab === 'done') {
@@ -282,7 +371,9 @@ function render() {
       return ['closed', 'cancelled', 'unaccepted'].includes(stageOf(t, now));
     }).filter(forMe);
     list.sort((a, b) => ms(b.reportedAt) - ms(a.reportedAt));
-    $('sum').textContent = `最近 ${DONE_DAYS} 天，${list.length} 張${done.length >= DONE_LIMIT ? `（只顯示最新 ${DONE_LIMIT} 張）` : ''}`;
+    $('sum').textContent = MID
+      ? `${MID} 最近 ${list.length} 張${done.length >= MACHINE_LIMIT ? `（只顯示最新 ${MACHINE_LIMIT} 張）` : ''}`
+      : `最近 ${DONE_DAYS} 天，${list.length} 張${done.length >= DONE_LIMIT ? `（只顯示最新 ${DONE_LIMIT} 張）` : ''}`;
   } else {
     list = byStage[tab].filter(forMe);
     // 退回重修的排最前面，其他照報修時間（舊的在前，先報先修）
@@ -291,8 +382,225 @@ function render() {
   }
   $('list').innerHTML = list.length
     ? list.map((t) => ticketHtml(t, { me, cfg, now })).join('')
-    : `<p class="rp-empty">${tab === 'done' ? `最近 ${DONE_DAYS} 天沒有結案的報修單` : '目前沒有'}${mine ? '（只看指派給我的）' : ''}</p>`;
+    : `<p class="rp-empty">${tab === 'done' ? (MID ? '這台沒有結案的報修單' : `最近 ${DONE_DAYS} 天沒有結案的報修單`) : '目前沒有'}${mine ? '（只看指派給我的）' : ''}</p>`;
 }
+
+// ============================================================
+// 功能㉒ 維修履歷與統計
+// ============================================================
+const DAY = 86400000;
+const TZ_OFFSET = 8 * 3600000;   // 台灣 UTC+8（沒有日光節約）
+
+// 期間 → [開始, 結束)（毫秒）
+function periodRange(key, now = Date.now()) {
+  const t = new Date(now + TZ_OFFSET);                 // 用 UTC 的欄位讀台灣的年月日
+  const y = t.getUTCFullYear(); const m = t.getUTCMonth();
+  const monthStart = (yy, mm) => Date.UTC(yy, mm, 1) - TZ_OFFSET;
+  if (key === 'thisMonth') return { from: monthStart(y, m), to: now, label: `${y}年${m + 1}月` };
+  if (key === 'lastMonth') {
+    const ly = m === 0 ? y - 1 : y; const lm = m === 0 ? 11 : m - 1;
+    return { from: monthStart(ly, lm), to: monthStart(y, m), label: `${ly}年${lm + 1}月` };
+  }
+  const days = key === 'd90' ? 90 : 30;
+  return { from: now - days * DAY, to: now, label: `最近${days}天` };
+}
+
+// 一張單的各段時間（毫秒；算不出來是 null）
+function timesOf(t, now = Date.now()) {
+  const rep = ms(t.reportedAt); const start = ms(t.startedAt); const doneAt = ms(t.doneAt);
+  const stage = stageOf(t, now);
+  return {
+    react: start ? start - rep : null,                       // 反應：報修 → 接單
+    repair: start && doneAt ? doneAt - start : null,         // 修理：接單 → 最後一次修完
+    ttr: t.stopped && doneAt ? doneAt - rep : null,          // 修復（MTTR 用）：報修 → 修好，只算有停機的
+    // 停機時數：有停機的單，修好了算到修好；還沒修好算到現在
+    down: !t.stopped ? 0 : doneAt ? doneAt - rep : (['open', 'repairing'].includes(stage) ? now - rep : 0),
+    stillDown: !!t.stopped && !doneAt && ['open', 'repairing'].includes(stage),
+    reworked: (t.reworks || []).length > 0,
+    reachedDone: !!doneAt || (t.reworks || []).length > 0
+  };
+}
+
+const avg = (arr) => (arr.length ? arr.reduce((a, b) => a + b, 0) / arr.length : null);
+const hrs = (v) => `${(v / 3600000).toFixed(1)}`;
+const dur = (v) => (v === null ? '—' : formatDuration(v));
+
+function computeStats(all, range, now = Date.now()) {
+  const list = all.filter((t) => t.stage !== 'cancelled');
+  const tm = list.map((t) => ({ t, x: timesOf(t, now) }));
+  const days = Math.max(1, (Math.min(range.to, now) - range.from) / DAY);
+  const dept = (t) => depts.get(t.deptId);
+  const causeLabel = (t) => {
+    const code = t.causeCode || t.faultCode;
+    return dept(t)?.reasons?.fault?.find((r) => r.code === code)?.label || code || '—';
+  };
+  const group = (keyOf) => {
+    const map = new Map();
+    tm.forEach(({ t, x }) => {
+      const key = keyOf(t);
+      if (!key) return;
+      const g = map.get(key) || { key, count: 0, down: 0, stillDown: 0, t };
+      g.count += 1; g.down += x.down; if (x.stillDown) g.stillDown += 1;
+      map.set(key, g);
+    });
+    return [...map.values()].sort((a, b) => b.count - a.count || b.down - a.down);
+  };
+  // 維修人員：接單數（誰接的）、修完件數和平均修理時間（誰修完的）
+  const people = new Map();
+  const person = (empNo, name) => {
+    if (!people.has(empNo)) people.set(empNo, { empNo, name, taken: 0, done: 0, repair: [] });
+    return people.get(empNo);
+  };
+  tm.forEach(({ t, x }) => {
+    if (t.startedByEmpNo) person(t.startedByEmpNo, t.startedByName).taken += 1;
+    if (t.doneByEmpNo) {
+      const p = person(t.doneByEmpNo, t.doneByName);
+      p.done += 1;
+      if (x.repair !== null) p.repair.push(x.repair);
+    }
+  });
+  const reached = tm.filter(({ x }) => x.reachedDone);
+  return {
+    count: list.length,
+    cancelled: all.length - list.length,
+    react: avg(tm.map(({ x }) => x.react).filter((v) => v !== null)),
+    repair: avg(tm.map(({ x }) => x.repair).filter((v) => v !== null)),
+    mttr: avg(tm.map(({ x }) => x.ttr).filter((v) => v !== null)),
+    ttrCount: tm.filter(({ x }) => x.ttr !== null).length,
+    reworkRate: reached.length ? reached.filter(({ x }) => x.reworked).length / reached.length : null,
+    reworked: reached.filter(({ x }) => x.reworked).length,
+    reached: reached.length,
+    machines: group((t) => t.machineId).map((g) => ({ ...g, mtbf: days / g.count })),
+    causes: group((t) => causeLabel(t)),
+    people: [...people.values()].map((p) => ({ ...p, avgRepair: avg(p.repair) }))
+      .sort((a, b) => b.done - a.done || b.taken - a.taken),
+    days
+  };
+}
+
+async function runStats() {
+  const range = periodRange($('st-period').value);
+  const floor = MID ? '' : $('st-floor').value;
+  setBusy($('st-run'), true, '查詢中…');
+  $('st-out').innerHTML = '<p class="muted">讀取中…</p>';
+  try {
+    const cs = [where('reportedAt', '>=', Timestamp.fromMillis(range.from)), where('reportedAt', '<', Timestamp.fromMillis(range.to)),
+      orderBy('reportedAt', 'desc'), limit(STATS_LIMIT + 1)];
+    const q = MID ? query(collection(db, 'repairs'), where('machineId', '==', MID), ...cs) : query(collection(db, 'repairs'), ...cs);
+    const snap = await getDocs(q);
+    let list = snap.docs.map((d) => ({ ...d.data(), id: d.id }));
+    const over = list.length > STATS_LIMIT;
+    if (over) list = list.slice(0, STATS_LIMIT);
+    if (floor) list = list.filter((t) => t.floorId === floor);
+    stats = { list, range, floor, over, reads: snap.docs.length };
+    renderStats();
+  } catch (err) {
+    $('st-out').innerHTML = `<p class="form-error">${escapeHtml(errorMessage(err))}</p>`;
+  } finally {
+    setBusy($('st-run'), false);
+  }
+}
+
+function renderStats() {
+  const esc = escapeHtml;
+  const { list, range, floor, over, reads } = stats;
+  const r = computeStats(list, range);
+  const kpi = (k, v, s = '') => `<div class="st-kpi"><span class="k">${k}</span><span class="v">${v}</span>${s ? `<span class="s">${s}</span>` : ''}</div>`;
+  const scope = `${range.label}${floor ? `，${esc(floors.get(floor) || floor)}` : ''}${MID ? `，${MID}` : ''}`;
+  let html = `<p class="muted">${scope}：讀取 ${reads} 次${over ? `（超過 ${STATS_LIMIT} 張，只算最新 ${STATS_LIMIT} 張）` : ''}${r.cancelled ? `；取消 ${r.cancelled} 張不列入` : ''}</p>`;
+  if (!r.count) {
+    $('st-out').innerHTML = `${html}<p class="rp-empty">這段期間沒有報修單</p>`;
+    return;
+  }
+  html += '<div class="st-kpis">'
+    + kpi('報修件數', r.count)
+    + kpi('平均反應時間', dur(r.react), '報修 → 接單')
+    + kpi('平均修理時間', dur(r.repair), '接單 → 修完')
+    + kpi('MTTR 平均修復時間', dur(r.mttr), `報修 → 修好（有停機的 ${r.ttrCount} 張）`)
+    + kpi('退回率', r.reworkRate === null ? '—' : `${Math.round(r.reworkRate * 100)}%`, `${r.reworked}／${r.reached} 張被退回過`)
+    + '</div>';
+
+  const max = Math.max(...r.machines.map((g) => g.count));
+  html += `<h3 class="st-sec">機台故障排行</h3><div class="st-wrap"><table class="st-table"><thead><tr>
+    <th>設備</th><th class="st-col-floor">樓層</th><th>次數</th><th>停機（時）</th><th>MTBF 粗估</th></tr></thead><tbody>`
+    + r.machines.slice(0, 30).map((g) => `<tr class="is-link" data-mid="${esc(g.key)}"><td><b>${esc(g.key)}</b></td>
+      <td class="st-col-floor">${esc(floors.get(g.t.floorId) || g.t.floorId || '')}</td>
+      <td class="n"><span class="st-bar" style="width:${Math.round((g.count / max) * 60)}px"></span>${g.count}</td>
+      <td class="n">${hrs(g.down)}${g.stillDown ? '＋' : ''}</td>
+      <td class="n">${g.mtbf.toFixed(1)} 天</td></tr>`).join('')
+    + '</tbody></table></div>'
+    + `<p class="st-note">點一列看那台的維修履歷。停機＝有停機的單從報修到修好；「＋」＝還沒修好，算到現在。MTBF 粗估＝期間 ${r.days.toFixed(1)} 天 ÷ 次數（沒有扣掉停用、無排產的時間，階段 6 再算精準的）。${r.machines.length > 30 ? `只列前 30 台（共 ${r.machines.length} 台）。` : ''}</p>`;
+
+  html += `<h3 class="st-sec">故障原因排行</h3><div class="st-wrap"><table class="st-table"><thead><tr>
+    <th>實際原因</th><th>次數</th><th>停機（時）</th></tr></thead><tbody>`
+    + r.causes.map((g) => `<tr><td>${esc(g.key)}</td><td class="n">${g.count}</td><td class="n">${hrs(g.down)}${g.stillDown ? '＋' : ''}</td></tr>`).join('')
+    + '</tbody></table></div><p class="st-note">還沒修完的單用報修時選的原因。</p>';
+
+  html += `<h3 class="st-sec">維修人員</h3>`
+    + (r.people.length
+      ? `<div class="st-wrap"><table class="st-table"><thead><tr><th>人員</th><th>接單數</th><th>修完件數</th><th>平均修理時間</th></tr></thead><tbody>`
+        + r.people.map((p) => `<tr><td>${esc(p.name || p.empNo)}</td><td class="n">${p.taken}</td><td class="n">${p.done}</td><td class="n">${dur(p.avgRepair)}</td></tr>`).join('')
+        + '</tbody></table></div><p class="st-note">修完件數、平均修理時間以最後一次修完的人計算。</p>'
+      : '<p class="muted">還沒有人接單。</p>');
+  $('st-out').innerHTML = html;
+}
+
+// 只看一台時，上方顯示這台最近 90 天的次數、停機時數
+function renderMachineSum() {
+  const now = Date.now();
+  const recent = (done || []).filter((t) => t.stage !== 'cancelled' && ms(t.reportedAt) >= now - 90 * DAY);
+  const down = recent.reduce((a, t) => a + timesOf(t, now).down, 0);
+  $('mc-mode-sum').textContent = `最近 90 天報修 ${recent.length} 次，停機約 ${hrs(down)} 小時`;
+}
+
+function exportStatsCsv() {
+  if (!stats?.list?.length) { toast('先查詢，有資料才能匯出', 'error'); return; }
+  const now = Date.now();
+  const deptOf = (t) => depts.get(t.deptId);
+  const fault = (t, code) => deptOf(t)?.reasons?.fault?.find((r) => r.code === code)?.label || code || '';
+  const min = (v) => (v === null ? '' : Math.round(v / 60000));
+  const time = (v) => (v ? formatTime(v) : '');
+  const closeLabel = { accepted: '驗收', selfClosed: '小問題自行結案', cancelled: '取消' };
+  const head = ['報修時間', '生產日', '班別', '設備編號', '樓層', '報修原因', '故障現象', '停機', '報修人', '代誰報', '指派',
+    '接單時間', '接單人', '維修完成時間', '修的人', '實際原因', '處置', '換零件', '零件', '退回次數', '退回原因',
+    '階段', '結案方式', '結案人', '結案時間', '結案備註', '反應(分)', '修理(分)', '報修到修好(分)'];
+  const rows = [...stats.list].sort((a, b) => ms(a.reportedAt) - ms(b.reportedAt)).map((t) => {
+    const x = timesOf(t, now);
+    return [time(t.reportedAt), t.prodDate, t.shiftId === 'N' ? '夜班' : '早班', t.machineId, floors.get(t.floorId) || t.floorId,
+      fault(t, t.faultCode), t.symptom, t.stopped ? '是' : '否', t.reportedByName, t.reportedFor, t.assignedName,
+      time(t.startedAt), t.startedByName || '', time(t.doneAt), t.doneByName || '', t.causeCode ? fault(t, t.causeCode) : '',
+      t.action || '', t.partsReplaced ? '是' : (t.partsReplaced === false ? '否' : ''), t.parts || '',
+      (t.reworks || []).length, (t.reworks || []).map((w) => w.rejectNote).join('／'),
+      { open: '待接單', repairing: '維修中', pendingAccept: '待驗收', closed: '已結案', unaccepted: '已結案（未驗收）', cancelled: '已取消' }[stageOf(t, now)] || t.stage,
+      closeLabel[t.closeType] || '', t.closedByName || '', time(t.closedAt), t.closeNote || '',
+      min(x.react), min(x.repair), min(x.ttr)];
+  });
+  const lines = [head, ...rows].map((cols) => cols.map(csvCell).join(','));
+  downloadCsv(lines, `報修單_${MID ? `${MID}_` : ''}${stats.range.label}.csv`);
+  toast(`已匯出 ${rows.length} 張`);
+}
+
+// CSV：開頭是 = + - @ 的文字前面加 '（Excel 不會當公式）；加 BOM，Excel 打開中文不亂碼（跟設備清單一樣）
+function csvCell(value) {
+  let text = String(value ?? '');
+  if (/^[=+\-@\t\r]/.test(text)) text = `'${text}`;
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+function downloadCsv(lines, filename) {
+  const blob = new Blob(['\uFEFF' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url; a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+$('st-run').addEventListener('click', runStats);
+$('st-csv').addEventListener('click', exportStatsCsv);
+$('st-out').addEventListener('click', (event) => {
+  const row = event.target.closest('tr[data-mid]');
+  if (row) location.href = `repairs.html?machineId=${encodeURIComponent(row.dataset.mid)}`;
+});
 
 function ms(t) { return t && typeof t.toMillis === 'function' ? t.toMillis() : 0; }
 
